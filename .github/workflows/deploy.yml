@@ -1,8 +1,8 @@
 name: Deploy a GitHub Pages
 
-# Por ahora solo manual. En la Iteración 8 cambiamos a `push: branches: [main]`
-# y activamos GitHub Pages con Source: "GitHub Actions" en Settings.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
