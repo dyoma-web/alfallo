@@ -1,0 +1,522 @@
+Actúa como diseñador senior de producto digital, experto en UI, UX, diseño responsive, identidad visual, sistemas de diseño y experiencia de usuario para plataformas fitness, salud, agenda, comunidad y gestión operativa.
+
+Necesito diseñar la identidad visual y la experiencia web responsive de una plataforma llamada “Al Fallo”.
+
+Contexto del producto:
+“Al Fallo” es una plataforma web responsive para la gestión de entrenamientos personalizados, semipersonalizados y grupales. Permite administrar usuarios/clientes, entrenadores, grupos, sedes, calendarios, planes, rutinas, asistencia, facturación, alertas, progreso, gamificación, encuestas y reportes.
+
+La primera versión será un MVP web responsive, pensado principalmente para celular, pero también debe funcionar muy bien en tablet y escritorio.
+
+Personalidad de marca:
+La marca debe sentirse:
+- Enérgica.
+- Moderna.
+- Confiable.
+- Disciplinada.
+- Cercana.
+- Deportiva.
+- Motivadora.
+- Profesional.
+- No intimidante.
+- No elitista.
+- Enfocada en constancia, progreso y hábitos saludables.
+
+Significado del nombre:
+“Al Fallo” hace referencia al esfuerzo máximo controlado en entrenamiento. No debe comunicarse como sufrimiento extremo ni presión corporal. Debe enfocarse en superación, disciplina, adherencia, progreso personal, cumplimiento de metas y acompañamiento profesional.
+
+Evitar:
+- Mensajes que promuevan comparación corporal.
+- Estereotipos de cuerpo ideal.
+- Lenguaje agresivo o tóxico.
+- Imágenes excesivamente enfocadas en apariencia física.
+- Sensación de app médica fría.
+- Sensación de gimnasio extremo exclusivamente masculino.
+
+Audiencias:
+1. Admin:
+   Persona encargada de administrar toda la operación: sedes, usuarios, entrenadores, grupos, calendarios, planes, facturación, reportes y permisos.
+
+2. Entrenador:
+   Profesional que gestiona sus usuarios asignados, grupos, calendario, rutinas, asistencia, planes, indicadores, observaciones, mensajes y alertas.
+
+3. Usuario/Cliente:
+   Persona que agenda entrenamientos, confirma sesiones, revisa su plan, ve rutinas, estadísticas, progreso, fotos, logros, entrenadores disponibles y califica su experiencia.
+
+Roles adicionales considerados para diseño futuro:
+- Super Admin.
+- Recepción / Operaciones.
+- Comercial / Facturación.
+- Especialista aliado: nutricionista, fisioterapeuta u otro.
+
+Objetivo del diseño:
+Crear una identidad visual completa y una experiencia clara para que cada rol entienda rápidamente:
+- Qué debe hacer hoy.
+- Qué tiene pendiente.
+- Qué requiere atención.
+- Cómo agenda o administra entrenamientos.
+- Cómo revisa planes, vencimientos y asistencia.
+- Cómo actúa frente a alertas.
+
+Tono visual:
+Debe combinar fitness, tecnología, gestión y comunidad.
+
+Propuesta de estilo:
+- Mobile first.
+- Limpio.
+- Deportivo.
+- Con tarjetas claras.
+- Uso fuerte de indicadores.
+- Calendarios fáciles de usar.
+- Estados visuales muy claros.
+- Botones de acción principales visibles.
+- Navegación inferior en móvil para usuarios y entrenadores.
+- Sidebar o menú lateral en escritorio para Admin y Entrenador.
+- Dashboard con datos accionables, no saturado.
+
+Identidad visual:
+Proponer:
+1. Logo principal para “Al Fallo”.
+2. Isotipo o símbolo.
+3. Versión horizontal.
+4. Versión compacta para app/PWA.
+5. Uso sobre fondo claro.
+6. Uso sobre fondo oscuro.
+7. Paleta de colores principal.
+8. Paleta secundaria.
+9. Colores semánticos:
+   - Éxito.
+   - Advertencia.
+   - Error.
+   - Información.
+   - Plan vencido.
+   - Plan activo.
+   - Entrenamiento confirmado.
+   - Entrenamiento pendiente.
+   - Entrenamiento cancelado.
+   - Entrenamiento completado.
+10. Tipografías recomendadas.
+11. Sistema de iconografía.
+12. Estilo de ilustraciones o fotografías.
+13. Tratamiento visual para entrenadores, usuarios, grupos y sedes.
+
+Lineamientos de marca:
+Crear una guía básica que incluya:
+- Personalidad.
+- Voz y tono.
+- Mensajes clave.
+- Microcopy.
+- Uso correcto del nombre “Al Fallo”.
+- Eslogan sugerido.
+- Frases de motivación sanas.
+- Frases para alertas.
+- Frases para confirmaciones.
+- Frases para errores.
+- Frases para estados vacíos.
+
+Eslogan sugerido:
+Proponer varias alternativas, por ejemplo:
+- “Entrena con propósito.”
+- “Constancia hasta el progreso.”
+- “Agenda, entrena, progresa.”
+- “Tu entrenamiento, mejor organizado.”
+- “Disciplina que se mide.”
+- “Cada sesión cuenta.”
+
+Principios UX:
+1. Cada rol debe ver solo lo necesario.
+2. El usuario debe poder agendar en pocos pasos.
+3. El entrenador debe poder gestionar su día rápidamente.
+4. El Admin debe tener control global.
+5. Los estados del sistema deben ser evidentes.
+6. Las advertencias deben ser claras, no alarmistas.
+7. La información sensible debe verse protegida.
+8. La experiencia debe funcionar perfectamente desde celular.
+9. El sistema debe reducir trabajo manual.
+10. Las pantallas deben priorizar acciones frecuentes.
+
+Arquitectura de navegación:
+
+Para Usuario/Cliente:
+- Inicio.
+- Agendar.
+- Mi calendario.
+- Mi plan.
+- Mis rutinas.
+- Mi progreso.
+- Entrenadores.
+- Mensajes / Alertas.
+- Perfil.
+
+Para Entrenador:
+- Dashboard.
+- Calendario.
+- Usuarios.
+- Grupos.
+- Rutinas.
+- Planes.
+- Facturación.
+- Alertas.
+- Mensajes.
+- Reportes.
+- Perfil.
+
+Para Admin:
+- Dashboard global.
+- Usuarios.
+- Entrenadores.
+- Sedes.
+- Grupos.
+- Calendarios.
+- Planes.
+- Facturación.
+- Reportes.
+- Configuración.
+- Permisos.
+- Auditoría.
+
+Importante:
+El módulo de Sedes solo debe estar disponible para Admin. El entrenador y el usuario pueden ver la sede asociada cuando aplique, pero no pueden crear, editar, suspender ni eliminar sedes.
+
+Pantallas que se deben diseñar:
+
+Pantallas públicas:
+1. Landing simple de acceso.
+2. Login.
+3. Recuperar contraseña.
+4. Activar cuenta.
+5. Crear nueva contraseña.
+6. Página de error o acceso no autorizado.
+
+Pantallas de Usuario:
+1. Dashboard personal.
+2. Calendario personal.
+3. Agendar entrenamiento.
+4. Confirmar entrenamiento pactado.
+5. Cancelar entrenamiento.
+6. Estado de cancelación dentro o fuera del margen permitido.
+7. Mi plan activo.
+8. Plan vencido.
+9. Historial de planes.
+10. Mis rutinas.
+11. Detalle de rutina.
+12. Mis estadísticas.
+13. Galería de progreso.
+14. Subir foto de progreso.
+15. Configurar privacidad de foto:
+    - Solo yo.
+    - Mi entrenador.
+    - Mi grupo.
+    - Público dentro de la plataforma.
+16. Ver entrenadores.
+17. Perfil público del entrenador.
+18. Solicitar entrenador.
+19. Calificar entrenador.
+20. Encuestas.
+21. Perfil del usuario.
+22. Preferencias de notificación.
+
+Pantallas de Entrenador:
+1. Dashboard del entrenador.
+2. Calendario del entrenador.
+3. Vista diaria.
+4. Vista semanal.
+5. Vista mensual.
+6. Crear entrenamiento.
+7. Confirmar solicitud de entrenamiento.
+8. Rechazar solicitud de entrenamiento.
+9. Advertencia de usuario con plan vencido.
+10. Lista de usuarios asignados.
+11. Perfil operativo del usuario.
+12. Crear usuario.
+13. Editar datos operativos del usuario.
+14. Asignar plan.
+15. Registrar factura.
+16. Registrar fecha de compra.
+17. Registrar fecha de vencimiento.
+18. Registrar proyección de entrenamientos.
+19. Registrar asistencia.
+20. Registrar indicadores.
+21. Crear rutina.
+22. Asignar rutina a usuario.
+23. Asignar rutina a grupo.
+24. Crear grupo.
+25. Gestionar grupo.
+26. Enviar alerta.
+27. Enviar mensaje masivo.
+28. Crear encuesta de continuidad.
+29. Calificar usuario.
+30. Autorizar solicitud de usuario.
+31. Reportes de entrenador.
+32. Perfil profesional del entrenador.
+
+Pantallas de Admin:
+1. Dashboard global.
+2. Gestión de usuarios.
+3. Crear usuario.
+4. Editar usuario.
+5. Suspender usuario.
+6. Cambiar rol.
+7. Gestión de entrenadores.
+8. Crear entrenador.
+9. Editar entrenador.
+10. Suspender entrenador.
+11. Gestión de sedes.
+12. Crear sede.
+13. Editar sede.
+14. Suspender sede.
+15. Asignar entrenadores a sede.
+16. Asignar usuarios a sede.
+17. Gestión de grupos.
+18. Calendario global.
+19. Bloqueo global de fechas.
+20. Configuración de ventanas de agendamiento.
+21. Planes y precios.
+22. Facturación global.
+23. Reportes globales.
+24. Configuración de permisos.
+25. Auditoría.
+26. Configuración general del sistema.
+
+Módulo de agendamiento:
+Diseñar un flujo claro con estos conceptos:
+- Entrenamiento proyectado.
+- Entrenamiento solicitado.
+- Entrenamiento pendiente de confirmación.
+- Entrenamiento confirmado.
+- Entrenamiento pactado.
+- Entrenamiento completado.
+- Entrenamiento cancelado.
+- Entrenamiento no asistido.
+
+Debe existir una ventana de agendamiento configurable. Ejemplos:
+- Solo esta semana.
+- Próximos 2 días.
+- Próximos 7 días.
+- Próximos 15 días.
+- Todo el mes.
+- Libre.
+- Rango personalizado.
+
+Cuando un usuario intenta agendar una sesión fuera de la fecha de vencimiento de su plan, mostrar una advertencia clara:
+“Tu plan aparece vencido para esta fecha. Puedes solicitar el agendamiento, pero el entrenador podrá rechazarlo o aceptarlo bajo autorización.”
+
+La advertencia no debe bloquear automáticamente el agendamiento, salvo que el Admin configure una regla restrictiva en el futuro.
+
+Estados visuales importantes:
+- Plan activo.
+- Plan próximo a vencer.
+- Plan vencido.
+- Sesiones disponibles.
+- Sin sesiones disponibles.
+- Solicitud pendiente.
+- Confirmado.
+- Rechazado.
+- Requiere autorización.
+- Fuera de ventana de agendamiento.
+- Fuera de vigencia del plan.
+- Cancelación dentro del margen.
+- Cancelación fuera del margen.
+
+Componentes UI requeridos:
+1. Botones primarios, secundarios, destructivos y fantasma.
+2. Inputs.
+3. Selects.
+4. Date picker.
+5. Time picker.
+6. Calendario.
+7. Tarjetas de usuario.
+8. Tarjetas de entrenador.
+9. Tarjetas de grupo.
+10. Tarjetas de plan.
+11. Badges de estado.
+12. Modales de confirmación.
+13. Toasts.
+14. Banners de advertencia.
+15. Tablas responsive.
+16. Filtros.
+17. Buscador.
+18. Tabs.
+19. Stepper para agendamiento.
+20. Empty states.
+21. Skeleton loaders.
+22. Alertas.
+23. Gráficas simples.
+24. Indicadores KPI.
+25. Galería de fotos.
+26. Selector de privacidad.
+27. Menú inferior móvil.
+28. Sidebar escritorio.
+29. Breadcrumbs en escritorio.
+30. Panel de notificaciones.
+
+Datos sensibles:
+Diseñar con privacidad:
+- Cédula no visible para otros usuarios.
+- Celular no visible para otros usuarios.
+- Información de salud no visible públicamente.
+- Fotos privadas según configuración.
+- Datos de facturación visibles solo para roles autorizados.
+- Nick visible para otros usuarios.
+- Perfil público del entrenador visible para usuarios.
+
+Campos de Usuario:
+- Nombres.
+- Apellidos.
+- Nick.
+- Cédula.
+- Celular.
+- Correo.
+- Foto.
+- Plan.
+- Objetivos.
+- Franja.
+- Proyección de entrenamientos.
+- Restricciones de salud o movilidad.
+- Comentarios.
+- Rol.
+- Grupo o grupos.
+- Entrenador asignado.
+- Sede asociada.
+- Preferencias de notificación.
+- Privacidad de fotos.
+- Estado.
+
+Campos de Entrenador:
+- Nombres.
+- Apellidos.
+- Nick.
+- Cédula.
+- Celular.
+- Correo.
+- Foto.
+- Franja de trabajo.
+- Perfil profesional.
+- Habilidades.
+- Tipos de entrenamiento.
+- Certificaciones.
+- Restricciones de entrenamiento.
+- Redes sociales.
+- Grupos.
+- Metas.
+- Planes ofertados.
+- Sedes asignadas.
+- Política de cancelación.
+- Calificación promedio.
+- Estado.
+
+Campos de Sede:
+Solo administrables por Admin.
+- Nombre de sede.
+- Código interno.
+- Dirección.
+- Ciudad.
+- Barrio o zona.
+- Teléfono.
+- Responsable.
+- Horarios.
+- Estado.
+- Capacidad general.
+- Observaciones.
+- Entrenadores asociados.
+- Servicios disponibles.
+- Reglas de operación.
+- Fechas bloqueadas propias de la sede.
+
+Dashboard de Usuario:
+Debe mostrar:
+- Próximo entrenamiento.
+- Estado del plan.
+- Sesiones restantes.
+- Botón rápido para agendar.
+- Rutina actual.
+- Racha de asistencia.
+- Alertas.
+- Logros recientes.
+- Progreso.
+
+Dashboard de Entrenador:
+Debe mostrar:
+- Entrenamientos de hoy.
+- Solicitudes pendientes.
+- Usuarios con plan próximo a vencer.
+- Usuarios con plan vencido.
+- Usuarios con baja asistencia.
+- Sesiones completadas.
+- Meta económica.
+- Meta por cantidad de usuarios.
+- Grupos activos.
+- Mensajes rápidos.
+
+Dashboard de Admin:
+Debe mostrar:
+- Usuarios activos.
+- Entrenadores activos.
+- Sedes activas.
+- Planes vendidos.
+- Planes vencidos.
+- Sesiones completadas.
+- Sesiones canceladas.
+- Ocupación por sede.
+- Ocupación por entrenador.
+- Alertas críticas.
+- Reportes globales.
+
+Gamificación:
+Diseñar un sistema sano y simple:
+- Rachas.
+- Medallas.
+- Puntos.
+- Retos.
+- Cumplimiento de sesiones.
+- Logros por constancia.
+- Logros por puntualidad.
+- Logros por completar plan.
+- Logros por responder encuestas.
+- Ranking opcional por grupo, si el usuario acepta participar.
+
+No centrar la gamificación en apariencia física, peso o comparación corporal.
+
+Accesibilidad:
+Cumplir buenas prácticas:
+- Buen contraste.
+- Tamaños táctiles adecuados.
+- Estados visibles.
+- Textos legibles.
+- No depender solo del color.
+- Formularios claros.
+- Mensajes de error útiles.
+- Navegación móvil simple.
+
+Entregables esperados:
+1. Moodboard.
+2. Propuesta de logo.
+3. Paleta de color.
+4. Tipografías.
+5. Guía visual básica.
+6. Sistema de componentes.
+7. Wireframes mobile.
+8. Wireframes desktop.
+9. Prototipo navegable.
+10. Diseño de pantallas principales.
+11. Estados vacíos.
+12. Estados de error.
+13. Estados de carga.
+14. Diseño responsive.
+15. Especificación para desarrollador.
+
+Prioridad del MVP:
+Diseñar primero:
+1. Login.
+2. Dashboard Usuario.
+3. Agendar entrenamiento.
+4. Calendario Usuario.
+5. Dashboard Entrenador.
+6. Calendario Entrenador.
+7. Gestión de Usuarios del Entrenador.
+8. Perfil del Usuario.
+9. Dashboard Admin.
+10. Gestión de Sedes.
+11. Gestión de Usuarios.
+12. Gestión de Entrenadores.
+13. Gestión de Planes.
+14. Reportes básicos.

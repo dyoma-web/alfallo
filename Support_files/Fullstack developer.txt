@@ -1,0 +1,43 @@
+Actúa como desarrollador fullstack senior, experto en arquitectura web, frontend responsive, JavaScript/TypeScript, seguridad básica, Google Sheets como datastore temporal, Google Apps Script como API intermedia, GitHub Pages, control de roles, calendarios, agendamiento, dashboards y aplicaciones administrativas.
+
+Necesito construir el MVP web responsive de una plataforma llamada “Al Fallo”.
+
+Objetivo general:
+Crear una plataforma web responsive para administrar entrenamientos personalizados, semipersonalizados y grupales. La plataforma debe manejar usuarios/clientes, entrenadores, admin, sedes, grupos, planes, calendarios, agendamiento, asistencia, rutinas, alertas, facturación básica, reportes, progreso y gamificación básica.
+
+Contexto técnico del MVP:
+- El código debe estar en GitHub.
+- La web se debe poder publicar con URL pública.
+- Usaremos GitHub Pages para servir el frontend estático.
+- Usaremos Google Sheets como pseudo base de datos.
+- Usaremos Google Apps Script como capa API entre el frontend y Google Sheets.
+- No se deben exponer credenciales ni secretos en el frontend.
+- No se debe conectar el frontend directamente a Google Sheets con claves sensibles.
+- La arquitectura debe poder migrar más adelante a una base de datos real como PostgreSQL o Firebase/Supabase.
+
+Consideración técnica importante:
+GitHub Pages funciona para frontend estático. Por eso, la lógica sensible, validaciones críticas y escrituras a Google Sheets deben pasar por Google Apps Script publicado como Web App. Apps Script puede responder a requests mediante doGet(e) y doPost(e).
+
+Stack sugerido:
+Frontend:
+- React + Vite + TypeScript.
+- Tailwind CSS.
+- React Router.
+- Zustand o Context API para estado global.
+- React Hook Form para formularios.
+- Zod para validaciones.
+- FullCalendar o alternativa liviana para calendario.
+- Recharts o alternativa simple para gráficas.
+- Deploy en GitHub Pages.
+
+Backend temporal:
+- Google Apps Script.
+- Endpoints tipo API usando doGet y doPost.
+- Google Sheets como datastore.
+- Validaciones de permisos en Apps Script.
+- Logs de auditoría en una hoja separada.
+- Manejo de sesiones con token temporal.
+- Hash de contraseñas, nunca texto plano.
+
+Advertencia:
+Google Sheets y Apps Script son aceptables para MVP y pruebas controladas, pero no deben tratarse como infraestructura final de producción para datos sensibles o alto tráfico. Las APIs de Google Sheets tienen cuotas por minuto, por ejemplo límites de lectura por proyecto, y Apps Script también tiene cuotas que pueden detener ejecuciones si se exceden. Implementar caching básico, lecturas agrupadas, escrituras agrupadas y control de errores. 
