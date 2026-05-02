@@ -151,6 +151,64 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'getUserOperationalProfile':
       return trainerGetUserProfile(payload, ctx);
 
+    // ── Admin (Iter 7) ──────────────────────────────────────────────────
+    case 'getAdminDashboard':
+      return adminGetDashboard(payload, ctx);
+
+    case 'adminListUsers':
+      return adminListUsers(payload, ctx);
+
+    case 'adminCreateUser':
+      return adminCreateUser(payload, ctx);
+
+    case 'adminUpdateUser':
+      return adminUpdateUser(payload, ctx);
+
+    case 'adminSuspendUser':
+      return adminSuspendUser(payload, ctx);
+
+    case 'adminReactivateUser':
+      return adminReactivateUser(payload, ctx);
+
+    case 'adminResendActivation':
+      return adminResendActivation(payload, ctx);
+
+    case 'adminUpsertTrainerProfile':
+      return adminUpsertTrainerProfile(payload, ctx);
+
+    case 'adminGetTrainerProfile':
+      return adminGetTrainerProfile(payload, ctx);
+
+    case 'adminListSedes':
+      return adminListSedes(payload, ctx);
+
+    case 'adminCreateSede':
+      return adminCreateSede(payload, ctx);
+
+    case 'adminUpdateSede':
+      return adminUpdateSede(payload, ctx);
+
+    case 'adminAssignTrainerToSede':
+      return adminAssignTrainerToSede(payload, ctx);
+
+    case 'adminUnassignTrainerFromSede':
+      return adminUnassignTrainerFromSede(payload, ctx);
+
+    case 'adminListPlanesCatalogo':
+      return adminListPlanesCatalogo(payload, ctx);
+
+    case 'adminCreatePlanCatalogo':
+      return adminCreatePlanCatalogo(payload, ctx);
+
+    case 'adminUpdatePlanCatalogo':
+      return adminUpdatePlanCatalogo(payload, ctx);
+
+    case 'adminAssignPlanToUser':
+      return adminAssignPlanToUser(payload, ctx);
+
+    case 'adminListTrainers':
+      return adminListTrainers(payload, ctx);
+
     // ── Options (Iter 5) ─────────────────────────────────────────────────
     case 'getBookingOptions':
       return optionsGetBookingOptions(payload, ctx);
