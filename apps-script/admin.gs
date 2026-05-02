@@ -433,6 +433,12 @@ function adminUpsertTrainerProfile(payload, ctx) {
     visibilidad_default: vEnum(payload.visibilidadDefault || 'solo_franjas',
       'visibilidad_default', ['nombres_visibles', 'solo_franjas']),
     cupos_estrictos: payload.cuposEstrictos !== false,
+    cupos_personalizado: payload.cuposPersonalizado != null
+      ? Math.max(1, Number(payload.cuposPersonalizado)) : 1,
+    cupos_semipersonalizado: payload.cuposSemipersonalizado != null
+      ? Math.max(1, Number(payload.cuposSemipersonalizado)) : 5,
+    cupos_grupal: payload.cuposGrupal != null
+      ? Math.max(1, Number(payload.cuposGrupal)) : 15,
     meta_economica_mensual: payload.metaEconomicaMensual ? Number(payload.metaEconomicaMensual) : 0,
     meta_usuarios_activos: payload.metaUsuariosActivos ? Number(payload.metaUsuariosActivos) : 0,
     updated_at: dbNowUtc(),

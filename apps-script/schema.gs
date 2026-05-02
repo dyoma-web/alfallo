@@ -30,6 +30,7 @@ const SCHEMA = {
     'user_id', 'perfil_profesional', 'habilidades', 'tipos_entrenamiento',
     'certificaciones', 'restricciones', 'redes_sociales', 'franja_trabajo',
     'politica_cancelacion_id', 'visibilidad_default', 'cupos_estrictos',
+    'cupos_personalizado', 'cupos_semipersonalizado', 'cupos_grupal',
     'meta_economica_mensual', 'meta_usuarios_activos',
     'calificacion_promedio', 'total_calificaciones',
     'created_at', 'updated_at'
@@ -100,7 +101,8 @@ const SCHEMA = {
     'tipo', 'fecha_inicio_utc', 'duracion_min', 'capacidad_max',
     'estado', 'color', 'visibilidad_nombres',
     'motivo_cancelacion', 'cancelado_por', 'cancelado_at_utc', 'dentro_margen',
-    'requiere_autorizacion', 'autorizado_por', 'autorizado_at_utc',
+    'requiere_autorizacion', 'motivo_autorizacion',
+    'autorizado_por', 'autorizado_at_utc',
     'notas_entrenador', 'notas_usuario',
     'created_at', 'updated_at', 'created_by'
   ],

@@ -242,6 +242,9 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'getTrainerBusySlots':
       return optionsGetTrainerBusySlots(payload, ctx);
 
+    case 'getSlotCapacity':
+      return bookingsGetSlotCapacity(payload, ctx);
+
     // ── Alertas (Iter 5) ─────────────────────────────────────────────────
     case 'listAlerts':
       return alertsListMine(payload, ctx);

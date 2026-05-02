@@ -89,18 +89,39 @@ function bookingsSubmit(payload, ctx) {
       throw _bookingErr_('TRAINER_NOT_AVAILABLE', 'El entrenador no está disponible');
     }
 
-    // Conflicto: ¿hay otra sesión activa del trainer en ese horario?
-    const conflicts = dbListAll('agendamientos', function (b) {
+    // Cargar perfil del trainer (necesario para caps de cupos y visibilidad)
+    const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+
+    // Cap de cupos por tipo de plan en la franja horaria
+    const sameSlotBookings = dbListAll('agendamientos', function (b) {
       if (b.entrenador_id !== trainerId) return false;
-      if (!['solicitado', 'confirmado', 'pactado'].includes(String(b.estado))) return false;
+      if (b.tipo !== tipo) return false;
+      if (['solicitado', 'confirmado', 'pactado'].indexOf(String(b.estado)) === -1) return false;
       return bookings_overlaps_(b.fecha_inicio_utc, Number(b.duracion_min) || 60, fechaInicio, duracionMin);
     });
-    if (conflicts.length > 0 && tipo === 'personalizado') {
-      throw _bookingErr_('SLOT_TAKEN', 'Ese horario ya no está disponible');
+
+    const cap = bookings_getCap_(trainerProfile, tipo);
+    const stricts = trainerProfile
+      ? (trainerProfile.cupos_estrictos === true || trainerProfile.cupos_estrictos === 'TRUE')
+      : true;
+    const cupoLleno = sameSlotBookings.length >= cap;
+
+    let requireAuth = false;
+    let motivoAuth = '';
+
+    if (cupoLleno) {
+      // Personalizado siempre es estricto (cap = 1, no admite más).
+      // Para semi/grupal: si cuposEstrictos=true → SLOT_FULL; si false → permite con flag.
+      if (tipo === 'personalizado' || stricts) {
+        throw _bookingErr_('SLOT_FULL', tipo === 'personalizado'
+          ? 'Ese horario ya no está disponible'
+          : 'El cupo de este tipo de sesión está lleno en esa franja');
+      }
+      requireAuth = true;
+      motivoAuth = 'cupo_lleno';
     }
 
     // Plan: ¿activo y vigente para esa fecha?
-    let requireAuth = false;
     let usePlanId = '';
     if (planUsuarioId) {
       const plan = dbFindById('planes_usuario', planUsuarioId);
@@ -109,19 +130,22 @@ function bookingsSubmit(payload, ctx) {
       }
       if (plan.estado !== 'active') {
         requireAuth = true;
+        if (!motivoAuth) motivoAuth = 'plan_vencido';
       } else if (new Date(fechaInicio) > new Date(plan.fecha_vencimiento_utc)) {
         requireAuth = true;
+        if (!motivoAuth) motivoAuth = 'plan_vencido';
       } else if (Number(plan.sesiones_consumidas) >= Number(plan.sesiones_totales)) {
         requireAuth = true;
+        if (!motivoAuth) motivoAuth = 'plan_agotado';
       }
       usePlanId = plan.id;
     } else {
       // Sin plan, requiere autorización del entrenador
       requireAuth = true;
+      if (!motivoAuth) motivoAuth = 'sin_plan';
     }
 
     // Snapshot de visibilidad del entrenador al momento de creación
-    const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
     const visibilityNames = trainerProfile
       ? trainerProfile.visibilidad_default === 'nombres_visibles'
       : false;
@@ -138,6 +162,7 @@ function bookingsSubmit(payload, ctx) {
       estado: requireAuth ? 'requiere_autorizacion' : 'solicitado',
       visibilidad_nombres: visibilityNames,
       requiere_autorizacion: requireAuth,
+      motivo_autorizacion: motivoAuth,
       notas_usuario: notas,
       updated_at: now,
     });
@@ -560,6 +585,71 @@ function bookings_overlaps_(aStart, aDur, bStart, bDur) {
 function bookings_getDraftTtl_() {
   const cfg = dbFindById('config', 'app.draft_booking_ttl_minutes');
   return cfg ? Number(cfg.value) : 10;
+}
+
+/**
+ * Cap por tipo de plan en una franja, leído del perfil del entrenador.
+ * Defaults razonables si no está configurado.
+ */
+function bookings_getCap_(trainerProfile, tipo) {
+  if (tipo === 'personalizado') {
+    if (trainerProfile && trainerProfile.cupos_personalizado) {
+      return Math.max(1, Number(trainerProfile.cupos_personalizado));
+    }
+    return 1;
+  }
+  if (tipo === 'semipersonalizado') {
+    if (trainerProfile && trainerProfile.cupos_semipersonalizado) {
+      return Math.max(1, Number(trainerProfile.cupos_semipersonalizado));
+    }
+    return 5;
+  }
+  if (tipo === 'grupal') {
+    if (trainerProfile && trainerProfile.cupos_grupal) {
+      return Math.max(1, Number(trainerProfile.cupos_grupal));
+    }
+    return 15;
+  }
+  return 1;
+}
+
+/**
+ * Devuelve el estado de cupo para una franja específica.
+ * Usado por el frontend para mostrar warning antes de submit.
+ */
+function bookingsGetSlotCapacity(payload, _ctx) {
+  const trainerId = vUuid(vRequired(payload.trainerId, 'trainerId'), 'trainerId');
+  const fechaInicio = vIsoDate(vRequired(payload.fechaInicioUtc, 'fechaInicioUtc'), 'fechaInicioUtc');
+  const tipo = vEnum(payload.tipo || 'personalizado', 'tipo',
+    ['personalizado', 'semipersonalizado', 'grupal']);
+  const duracionMin = payload.duracionMin
+    ? vNumber(payload.duracionMin, 'duracionMin', { min: 15, max: 240, int: true })
+    : 60;
+
+  const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+  const cap = bookings_getCap_(trainerProfile, tipo);
+  const stricts = trainerProfile
+    ? (trainerProfile.cupos_estrictos === true || trainerProfile.cupos_estrictos === 'TRUE')
+    : true;
+
+  const sameSlot = dbListAll('agendamientos', function (b) {
+    if (b.entrenador_id !== trainerId) return false;
+    if (b.tipo !== tipo) return false;
+    if (['solicitado', 'confirmado', 'pactado'].indexOf(String(b.estado)) === -1) return false;
+    return bookings_overlaps_(b.fecha_inicio_utc, Number(b.duracion_min) || 60, fechaInicio, duracionMin);
+  });
+
+  const tomados = sameSlot.length;
+  const lleno = tomados >= cap;
+
+  return {
+    cap: cap,
+    tomados: tomados,
+    disponibles: Math.max(0, cap - tomados),
+    estricto: stricts,
+    lleno: lleno,
+    tipo: tipo,
+  };
 }
 
 function bookings_getApplicablePolicy_(booking) {

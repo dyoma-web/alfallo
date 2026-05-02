@@ -48,6 +48,15 @@ interface BusySlotsResp {
   busy: BusySlot[];
 }
 
+interface SlotCapacity {
+  cap: number;
+  tomados: number;
+  disponibles: number;
+  estricto: boolean;
+  lleno: boolean;
+  tipo: string;
+}
+
 // Slots cada 30 min entre 06:00 y 21:00
 const SLOT_HOURS = Array.from({ length: 31 }, (_, i) => {
   const totalMin = 6 * 60 + i * 30;
@@ -133,10 +142,35 @@ export default function Booking() {
   const selectedTrainerId = watch('entrenadorId');
   const selectedDate = watch('fecha');
   const selectedHora = watch('hora');
+  const selectedDuracion = watch('duracionMin');
 
   // Cargar slots ocupados cuando cambian trainer o fecha
   const [busySlots, setBusySlots] = useState<BusySlot[]>([]);
   const [busyLoading, setBusyLoading] = useState(false);
+
+  // Cargar capacidad cuando hay slot seleccionado completo
+  const [slotCap, setSlotCap] = useState<SlotCapacity | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedTrainerId || !selectedDate || !selectedHora) {
+      setSlotCap(null);
+      return;
+    }
+    const fechaInicioUtc = new Date(`${selectedDate}T${selectedHora}:00`).toISOString();
+    api<SlotCapacity>(
+      'getSlotCapacity',
+      {
+        trainerId: selectedTrainerId,
+        fechaInicioUtc,
+        tipo: 'personalizado', // por ahora hardcoded como en submit
+        duracionMin: selectedDuracion || 60,
+      },
+      { token, retry: false }
+    )
+      .then((res) => { if (!cancelled) setSlotCap(res); })
+      .catch(() => { if (!cancelled) setSlotCap(null); });
+    return () => { cancelled = true; };
+  }, [selectedTrainerId, selectedDate, selectedHora, selectedDuracion, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -383,6 +417,36 @@ export default function Booking() {
                   </div>
                 </div>
               </Card>
+            )}
+
+            {/* Aviso de cupo */}
+            {slotCap && slotCap.lleno && (
+              <Card padding={16} className="border-warn/25 bg-warn/5">
+                <div className="flex items-start gap-3 text-[13px]">
+                  <Icon name="bell" size={16} color="#FFC97A" strokeWidth={2} className="mt-0.5 flex-none" />
+                  <div className="text-fg-2">
+                    {slotCap.estricto ? (
+                      <>
+                        <strong>Cupo lleno y estricto.</strong> No se pueden agendar más
+                        sesiones de tipo "{slotCap.tipo}" en esa franja ({slotCap.tomados}/{slotCap.cap}).
+                        Elige otro horario.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Cupo lleno ({slotCap.tomados}/{slotCap.cap}).</strong>{' '}
+                        Puedes solicitar agendar, pero tu entrenador decidirá si confirma o no.
+                        Solo confirmadas son en firme.
+                      </>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            )}
+            {slotCap && !slotCap.lleno && slotCap.cap > 1 && (
+              <p className="text-[12px] text-fg-3">
+                Cupo de "{slotCap.tipo}" en esa franja: {slotCap.tomados}/{slotCap.cap} tomados ·{' '}
+                {slotCap.disponibles} {slotCap.disponibles === 1 ? 'disponible' : 'disponibles'}.
+              </p>
             )}
 
             {options.planActivo && options.planActivo.sesionesRestantes <= 2 && (

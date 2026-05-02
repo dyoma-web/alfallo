@@ -7,6 +7,7 @@ import { Icon } from '../components/Icon';
 import { StatusBadge, type StatusKind } from '../components/StatusBadge';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { UserFormModal } from '../components/admin/UserFormModal';
+import { TrainerProfileModal } from '../components/admin/TrainerProfileModal';
 import { formatRelative } from '../lib/datetime';
 
 interface SedeRef {
@@ -69,6 +70,7 @@ export default function AdminUsers() {
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [trainerProfileFor, setTrainerProfileFor] = useState<UserListItem | null>(null);
 
   const suspend = useApiMutation('adminSuspendUser');
   const reactivate = useApiMutation('adminReactivateUser');
@@ -230,6 +232,7 @@ export default function AdminUsers() {
                 onSuspend={() => handleSuspend(u.id)}
                 onReactivate={() => handleReactivate(u.id)}
                 onResend={() => handleResend(u.id)}
+                onTrainerProfile={u.rol === 'trainer' ? () => setTrainerProfileFor(u) : undefined}
                 busy={suspend.loading || reactivate.loading || resend.loading}
               />
             ))}
@@ -244,6 +247,7 @@ export default function AdminUsers() {
             onSuspend={handleSuspend}
             onReactivate={handleReactivate}
             onResend={handleResend}
+            onTrainerProfile={(u) => setTrainerProfileFor(u)}
             busy={suspend.loading || reactivate.loading || resend.loading}
           />
         )}
@@ -261,6 +265,16 @@ export default function AdminUsers() {
           setEditingUser(null);
           void refetch();
         }}
+      />
+
+      <TrainerProfileModal
+        open={!!trainerProfileFor}
+        trainerId={trainerProfileFor?.id ?? null}
+        trainerName={trainerProfileFor
+          ? `${trainerProfileFor.nombres} ${trainerProfileFor.apellidos}`.trim()
+          : undefined}
+        onClose={() => setTrainerProfileFor(null)}
+        onSaved={() => { /* keep open after save */ }}
       />
 
       {resentLink && (
@@ -281,6 +295,7 @@ function GroupedUsers({
   onSuspend,
   onReactivate,
   onResend,
+  onTrainerProfile,
   busy,
 }: {
   users: UserListItem[];
@@ -289,6 +304,7 @@ function GroupedUsers({
   onSuspend: (id: string) => void;
   onReactivate: (id: string) => void;
   onResend: (id: string) => void;
+  onTrainerProfile: (u: UserListItem) => void;
   busy: boolean;
 }) {
   const groups = useMemo(() => {
@@ -359,6 +375,7 @@ function GroupedUsers({
                 onSuspend={() => onSuspend(u.id)}
                 onReactivate={() => onReactivate(u.id)}
                 onResend={() => onResend(u.id)}
+                onTrainerProfile={u.rol === 'trainer' ? () => onTrainerProfile(u) : undefined}
                 busy={busy}
               />
             ))}
@@ -375,6 +392,7 @@ function UserRow({
   onSuspend,
   onReactivate,
   onResend,
+  onTrainerProfile,
   busy,
 }: {
   user: UserListItem;
@@ -382,6 +400,7 @@ function UserRow({
   onSuspend: () => void;
   onReactivate: () => void;
   onResend: () => void;
+  onTrainerProfile?: () => void;
   busy: boolean;
 }) {
   const initials =
@@ -456,6 +475,11 @@ function UserRow({
           {isPending && (
             <Btn variant="outline" size="sm" onClick={onResend} disabled={busy}>
               Reenviar invitación
+            </Btn>
+          )}
+          {user.rol === 'trainer' && onTrainerProfile && (
+            <Btn variant="outline" size="sm" onClick={onTrainerProfile} disabled={busy}>
+              Perfil profesional
             </Btn>
           )}
           {isSuspended ? (
