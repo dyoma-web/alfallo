@@ -5,6 +5,7 @@ import { lazyWithRetry } from './lib/lazy';
 import { RequireAuth } from './components/auth/RequireAuth';
 import { RequireRole } from './components/auth/RequireRole';
 import { Logo } from './components/Logo';
+import { CookieBanner } from './components/CookieBanner';
 
 // Lazy-loaded pages — splits the initial bundle por route.
 const Login = lazyWithRetry(() => import('./pages/Login'));
@@ -81,6 +82,7 @@ function UsersSwitch() {
 export function AppRouter() {
   return (
     <HashRouter>
+      <CookieBanner />
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
           {/* Públicas */}
