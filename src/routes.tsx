@@ -12,7 +12,18 @@ const ActivateAccount = lazyWithRetry(() => import('./pages/ActivateAccount'));
 const ForgotPassword = lazyWithRetry(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazyWithRetry(() => import('./pages/ResetPassword'));
 const Logout = lazyWithRetry(() => import('./pages/Logout'));
-const DashboardPlaceholder = lazyWithRetry(() => import('./pages/DashboardPlaceholder'));
+
+const UserDashboard = lazyWithRetry(() => import('./pages/UserDashboard'));
+const MyPlan = lazyWithRetry(() => import('./pages/MyPlan'));
+const Alerts = lazyWithRetry(() => import('./pages/Alerts'));
+const Profile = lazyWithRetry(() => import('./pages/Profile'));
+const CalendarPlaceholder = lazyWithRetry(() =>
+  import('./pages/ComingSoon').then((m) => ({ default: m.CalendarPlaceholder }))
+);
+const BookingPlaceholder = lazyWithRetry(() =>
+  import('./pages/ComingSoon').then((m) => ({ default: m.BookingPlaceholder }))
+);
+
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
 const Forbidden = lazyWithRetry(() => import('./pages/Forbidden'));
 const PoliticaDatos = lazyWithRetry(() => import('./pages/PoliticaDatos'));
@@ -48,14 +59,30 @@ export function AppRouter() {
           <Route path="/politica-datos" element={<PoliticaDatos />} />
           <Route path="/terminos" element={<Terminos />} />
 
-          {/* Protegidas */}
+          {/* Protegidas — núcleo Usuario (Iter 5) */}
           <Route
             path="/dashboard"
-            element={
-              <RequireAuth>
-                <DashboardPlaceholder />
-              </RequireAuth>
-            }
+            element={<RequireAuth><UserDashboard /></RequireAuth>}
+          />
+          <Route
+            path="/mi-plan"
+            element={<RequireAuth><MyPlan /></RequireAuth>}
+          />
+          <Route
+            path="/alertas"
+            element={<RequireAuth><Alerts /></RequireAuth>}
+          />
+          <Route
+            path="/perfil"
+            element={<RequireAuth><Profile /></RequireAuth>}
+          />
+          <Route
+            path="/calendario"
+            element={<RequireAuth><CalendarPlaceholder /></RequireAuth>}
+          />
+          <Route
+            path="/agendar"
+            element={<RequireAuth><BookingPlaceholder /></RequireAuth>}
           />
 
           {/* Redirects */}
