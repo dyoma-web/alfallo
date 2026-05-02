@@ -36,6 +36,7 @@ const AdminPlanes = lazyWithRetry(() => import('./pages/AdminPlanes'));
 const AdminCalendar = lazyWithRetry(() => import('./pages/AdminCalendar'));
 const AdminGimnasios = lazyWithRetry(() => import('./pages/AdminGimnasios'));
 const Solicitudes = lazyWithRetry(() => import('./pages/Solicitudes'));
+const Unavailability = lazyWithRetry(() => import('./pages/Unavailability'));
 
 // Otras
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
@@ -160,6 +161,16 @@ export function AppRouter() {
               <RequireAuth>
                 <RequireRole roles={['trainer', 'admin', 'super_admin']}>
                   <Solicitudes />
+                </RequireRole>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/no-disponibilidad"
+            element={
+              <RequireAuth>
+                <RequireRole roles={['trainer', 'admin', 'super_admin']}>
+                  <Unavailability />
                 </RequireRole>
               </RequireAuth>
             }

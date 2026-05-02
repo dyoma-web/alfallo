@@ -121,6 +121,13 @@ function bookingsSubmit(payload, ctx) {
       motivoAuth = 'cupo_lleno';
     }
 
+    // Iter 12: verificar si el trainer marcó esa franja como no-disponible
+    const unavailRule = availability_checkConflict_(trainerId, fechaInicio, duracionMin);
+    if (unavailRule) {
+      throw _bookingErr_('TRAINER_UNAVAILABLE',
+        'El entrenador marcó esa franja como no-disponible: "' + unavailRule.titulo + '"');
+    }
+
     // Plan: ¿activo y vigente para esa fecha?
     let usePlanId = '';
     if (planUsuarioId) {

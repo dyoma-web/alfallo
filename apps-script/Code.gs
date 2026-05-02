@@ -235,6 +235,22 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'resolveSolicitud':
       return solicitudesResolve(payload, ctx);
 
+    // ── No-disponibilidad (Iter 12) ──────────────────────────────────────
+    case 'createUnavailability':
+      return availabilityCreate(payload, ctx);
+
+    case 'updateUnavailability':
+      return availabilityUpdate(payload, ctx);
+
+    case 'deleteUnavailability':
+      return availabilityDelete(payload, ctx);
+
+    case 'listUnavailability':
+      return availabilityList(payload, ctx);
+
+    case 'expandUnavailability':
+      return availabilityExpanded(payload, ctx);
+
     // ── Options (Iter 5) ─────────────────────────────────────────────────
     case 'getBookingOptions':
       return optionsGetBookingOptions(payload, ctx);

@@ -61,6 +61,19 @@ const SCHEMA = {
     'created_at', 'updated_at', 'created_by'
   ],
 
+  // Iter 12: franjas de no-disponibilidad. Trainers y admin las crean.
+  // Bloquean agendamiento del trainer en esos horarios.
+  // Recurrencia simple: none/daily/weekly con dias_semana (CSV de 0-6,
+  // donde 0=domingo) y intervalo (cada N días/semanas).
+  unavailability: [
+    'id', 'entity_type', 'entity_id',
+    'titulo', 'descripcion',
+    'fecha_inicio_utc', 'fecha_fin_utc',
+    'recurrence', 'dias_semana', 'intervalo', 'fecha_fin_recurrencia',
+    'estado',
+    'created_at', 'updated_at', 'created_by'
+  ],
+
   sedes_entrenadores: [
     'id', 'sede_id', 'entrenador_id', 'desde', 'hasta', 'estado'
   ],
