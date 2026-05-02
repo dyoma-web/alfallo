@@ -84,6 +84,67 @@ function emailSendActivationLink(user, token) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Diagnóstico — ejecutar desde el editor de Apps Script
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * EJECUTAR UNA SOLA VEZ desde el editor (dropdown → authorizeMailScope → Run).
+ *
+ * Después de pegar código nuevo que usa MailApp, Apps Script detecta el
+ * scope `script.send_mail` pero NO lo autoriza automáticamente al hacer
+ * deploy. Si nadie corre ninguna función que use MailApp desde el editor,
+ * la Web App deployada intenta enviar emails y falla silenciosamente
+ * (porque el wrapper email_send_ traga los errores para no romper el flujo
+ * de password reset).
+ *
+ * Esta función envía un correo de prueba a la cuenta dueña del script:
+ *   1. Apps Script pide autorización del scope de envío de emails.
+ *   2. Aceptas → queda autorizado para todo el proyecto.
+ *   3. Recibes el email en tu inbox → confirmación de que funciona.
+ *   4. La Web App deployada también puede enviar emails desde ese momento.
+ */
+function authorizeMailScope() {
+  Logger.log('=== ALFALLO — AUTORIZAR ENVÍO DE EMAILS ===');
+
+  const me = Session.getActiveUser().getEmail();
+  Logger.log('Cuenta ejecutando: ' + (me || '(no disponible)'));
+
+  // getRemainingDailyQuota requiere el mismo scope — dispara el prompt si falta
+  const quota = MailApp.getRemainingDailyQuota();
+  Logger.log('Cuota restante hoy: ' + quota + ' emails');
+
+  // Email de prueba al admin semilla (declarado en bootstrap.gs)
+  const targetEmail = me || BOOTSTRAP_SUPER_ADMIN.email;
+
+  MailApp.sendEmail({
+    to: targetEmail,
+    subject: '✓ Al Fallo — autorización de envío OK',
+    body:
+      'Si lees este correo, MailApp está autorizado correctamente.\n\n' +
+      'Los emails de "olvidé mi contraseña" ya van a salir desde la Web App.\n\n' +
+      '— Al Fallo · Equipo de administración',
+    htmlBody: email_renderHtml_({
+      title: 'Autorización de envío OK',
+      greeting: 'Hola,',
+      paragraphs: [
+        'Si lees este correo, MailApp está autorizado correctamente.',
+        'Los emails de password reset ya van a salir desde la Web App deployada.',
+      ],
+      cta: { label: 'Ir a Al Fallo', url: 'https://dyoma-web.github.io/alfallo/' },
+      footnote: 'Email de prueba — puedes ignorarlo.',
+    }),
+    name: 'Al Fallo',
+    noReply: true,
+  });
+
+  Logger.log('');
+  Logger.log('✓ Email de prueba enviado a ' + targetEmail);
+  Logger.log('  Revisa tu inbox (puede tardar 30s).');
+  Logger.log('  Si no llega, revisa spam/promociones.');
+  Logger.log('=== FIN ===');
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Helpers internos
 // ──────────────────────────────────────────────────────────────────────────
 
