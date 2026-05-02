@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-02T03:47:35.919Z                              ║
+ * ║  Built:   2026-05-02T03:56:26.642Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -1584,6 +1584,867 @@ function auth_publicUserShape_(user) {
 
 
 // ═══════════════════════════════════════════════════════════════════════
+// alerts.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * alerts.gs — Endpoints de alertas + generadores time-driven.
+ */
+
+// ──────────────────────────────────────────────────────────────────────────
+// Listar alertas del usuario logueado
+// ──────────────────────────────────────────────────────────────────────────
+
+function alertsListMine(payload, ctx) {
+  const onlyUnread = payload && payload.onlyUnread === true;
+  const limit = payload && payload.limit ? vNumber(payload.limit, 'limit', { min: 1, max: 200, int: true }) : 50;
+
+  const list = dbListAll('alertas', function (a) {
+    if (a.user_id !== ctx.userId) return false;
+    if (onlyUnread && (a.leida === true || a.leida === 'TRUE')) return false;
+    if (a.expires_at_utc && new Date(a.expires_at_utc) < new Date()) return false;
+    return true;
+  });
+  list.sort(function (a, b) {
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+
+  return {
+    items: list.slice(0, limit),
+    totalUnread: list.filter(function (a) {
+      return a.leida !== true && a.leida !== 'TRUE';
+    }).length,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Marcar como leída
+// ──────────────────────────────────────────────────────────────────────────
+
+function alertsMarkRead(payload, ctx) {
+  const alertId = vUuid(vRequired(payload.alertId, 'alertId'), 'alertId');
+  const alert = dbFindById('alertas', alertId);
+  if (!alert) throw _err('NOT_FOUND', 'Alerta no encontrada');
+  if (alert.user_id !== ctx.userId) throw _err('FORBIDDEN', 'No es tu alerta');
+
+  if (alert.leida !== true && alert.leida !== 'TRUE') {
+    dbUpdateById('alertas', alertId, {
+      leida: true,
+      leida_at_utc: dbNowUtc(),
+    });
+  }
+  return { ok: true };
+}
+
+function alertsMarkAllRead(_payload, ctx) {
+  const list = dbListAll('alertas', function (a) {
+    return a.user_id === ctx.userId && a.leida !== true && a.leida !== 'TRUE';
+  });
+  const now = dbNowUtc();
+  for (let i = 0; i < list.length; i++) {
+    dbUpdateById('alertas', list[i].id, { leida: true, leida_at_utc: now });
+  }
+  return { count: list.length };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Helper: crea una alerta (uso interno desde otros módulos)
+// ──────────────────────────────────────────────────────────────────────────
+
+function alerts_create_(opts) {
+  return dbInsert('alertas', {
+    id: cryptoUuid(),
+    user_id: opts.userId,
+    tipo: opts.tipo,
+    severidad: opts.severidad || 'info',
+    titulo: opts.titulo,
+    descripcion: opts.descripcion || '',
+    accion_url: opts.accionUrl || '',
+    entidad_ref: opts.entidadRef || '',
+    leida: false,
+    leida_at_utc: '',
+    created_at: dbNowUtc(),
+    expires_at_utc: opts.expiresAtUtc || '',
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Triggers time-driven (configurar manualmente desde el editor)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Genera alertas de planes próximos a vencer (≤7 días).
+ * Configurar trigger horario.
+ */
+function alertsGeneratePlanWarnings() {
+  const now = new Date();
+  const planes = dbListAll('planes_usuario', function (p) {
+    return p.estado === 'active' && p.fecha_vencimiento_utc;
+  });
+
+  let created = 0;
+  for (let i = 0; i < planes.length; i++) {
+    const p = planes[i];
+    const dias = Math.ceil((new Date(p.fecha_vencimiento_utc) - now) / 86_400_000);
+
+    if (dias <= 0) {
+      // Plan vencido — alerta una sola vez (la primera vez que se detecta)
+      const ya = dbListAll('alertas', function (a) {
+        return a.user_id === p.user_id && a.tipo === 'plan_vencido' && a.entidad_ref === p.id;
+      });
+      if (ya.length === 0) {
+        alerts_create_({
+          userId: p.user_id,
+          tipo: 'plan_vencido',
+          severidad: 'error',
+          titulo: 'Tu plan ha vencido',
+          descripcion: 'Tu plan venció el ' + new Date(p.fecha_vencimiento_utc).toLocaleDateString('es-CO'),
+          accionUrl: '/mi-plan',
+          entidadRef: p.id,
+        });
+        created++;
+      }
+    } else if (dias <= 7) {
+      // Plan próximo a vencer
+      const ya = dbListAll('alertas', function (a) {
+        return a.user_id === p.user_id && a.tipo === 'plan_por_vencer' && a.entidad_ref === p.id
+          && a.leida !== true && a.leida !== 'TRUE';
+      });
+      if (ya.length === 0) {
+        alerts_create_({
+          userId: p.user_id,
+          tipo: 'plan_por_vencer',
+          severidad: 'warn',
+          titulo: 'Tu plan vence pronto',
+          descripcion: 'En ' + dias + ' día' + (dias === 1 ? '' : 's') + '. Considera renovar.',
+          accionUrl: '/mi-plan',
+          entidadRef: p.id,
+        });
+        created++;
+      }
+    }
+  }
+  Logger.log('Alertas de planes generadas: ' + created);
+  return created;
+}
+
+/**
+ * Genera alertas de sesiones próximas (próximas 24h).
+ * Configurar trigger horario.
+ */
+function alertsGenerateSessionReminders() {
+  const now = new Date();
+  const in24h = new Date(now.getTime() + 24 * 3_600_000);
+  const sesiones = dbListAll('agendamientos', function (b) {
+    if (!b.fecha_inicio_utc) return false;
+    if (b.estado !== 'confirmado' && b.estado !== 'pactado') return false;
+    const t = new Date(b.fecha_inicio_utc);
+    return t > now && t <= in24h;
+  });
+
+  let created = 0;
+  for (let i = 0; i < sesiones.length; i++) {
+    const s = sesiones[i];
+    const ya = dbListAll('alertas', function (a) {
+      return a.user_id === s.user_id && a.tipo === 'sesion_24h' && a.entidad_ref === s.id;
+    });
+    if (ya.length > 0) continue;
+
+    const fecha = new Date(s.fecha_inicio_utc);
+    const horaTexto = fecha.toLocaleTimeString('es-CO', {
+      hour: '2-digit', minute: '2-digit', timeZone: 'America/Bogota',
+    });
+    alerts_create_({
+      userId: s.user_id,
+      tipo: 'sesion_24h',
+      severidad: 'info',
+      titulo: 'Sesión próxima',
+      descripcion: 'Tienes una sesión a las ' + horaTexto + '. ¡A entrenar!',
+      accionUrl: '/calendario',
+      entidadRef: s.id,
+    });
+    created++;
+  }
+  Logger.log('Recordatorios de sesión generados: ' + created);
+  return created;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// options.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * options.gs — Endpoints que devuelven listas de opciones para formularios
+ * (catálogos para el flujo de agendar).
+ */
+
+// ──────────────────────────────────────────────────────────────────────────
+// getBookingOptions — retorna trainers + sedes + plan activo del usuario
+// ──────────────────────────────────────────────────────────────────────────
+
+function optionsGetBookingOptions(_payload, ctx) {
+  const userId = ctx.userId;
+  const user = dbFindById('usuarios', userId);
+  if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
+
+  // 1. Entrenadores disponibles para el usuario
+  // MVP: el entrenador asignado (si existe) + (futuro) cualquier otro activo
+  const trainers = [];
+  if (user.entrenador_asignado_id) {
+    const t = dbFindById('usuarios', user.entrenador_asignado_id);
+    if (t && t.rol === 'trainer' && t.estado === 'active') {
+      const profile = dbFindById('entrenadores_perfil', t.id);
+      trainers.push({
+        id: t.id,
+        nombres: t.nombres,
+        apellidos: t.apellidos,
+        nick: t.nick,
+        foto_url: t.foto_url,
+        perfilProfesional: profile ? profile.perfil_profesional : '',
+        habilidades: profile ? String(profile.habilidades || '').split(',').filter(Boolean) : [],
+        tiposEntrenamiento: profile ? String(profile.tipos_entrenamiento || '').split(',').filter(Boolean) : [],
+        visibilidadDefault: profile ? profile.visibilidad_default : 'solo_franjas',
+        cuposEstrictos: profile ? Boolean(profile.cupos_estrictos) : true,
+      });
+    }
+  }
+
+  // 2. Sedes disponibles
+  // MVP: las sedes asignadas al usuario; si no tiene, todas las activas
+  let sedes = [];
+  const userSedes = dbListAll('sedes_usuarios', function (su) {
+    return su.user_id === userId;
+  });
+  if (userSedes.length > 0) {
+    for (let i = 0; i < userSedes.length; i++) {
+      const s = dbFindById('sedes', userSedes[i].sede_id);
+      if (s && s.estado === 'active') {
+        sedes.push({
+          id: s.id, nombre: s.nombre, codigo: s.codigo_interno,
+          ciudad: s.ciudad, direccion: s.direccion,
+        });
+      }
+    }
+  } else {
+    sedes = dbListAll('sedes', function (s) { return s.estado === 'active'; })
+      .map(function (s) {
+        return {
+          id: s.id, nombre: s.nombre, codigo: s.codigo_interno,
+          ciudad: s.ciudad, direccion: s.direccion,
+        };
+      });
+  }
+
+  // 3. Plan activo del usuario
+  const planesActivos = dbListAll('planes_usuario', function (p) {
+    return p.user_id === userId && p.estado === 'active';
+  });
+  let planActivo = null;
+  if (planesActivos.length > 0) {
+    planesActivos.sort(function (a, b) {
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+    const p = planesActivos[0];
+    const cat = dbFindById('planes_catalogo', p.plan_catalogo_id);
+    planActivo = {
+      id: p.id,
+      nombre: cat ? cat.nombre : 'Plan',
+      tipo: cat ? cat.tipo : '',
+      sesionesRestantes: Math.max(0, Number(p.sesiones_totales) - Number(p.sesiones_consumidas)),
+      fechaVencimientoUtc: p.fecha_vencimiento_utc,
+    };
+  }
+
+  return {
+    trainers: trainers,
+    sedes: sedes,
+    planActivo: planActivo,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// getTrainerBusySlots — para el date picker, mostrar conflictos del trainer
+// ──────────────────────────────────────────────────────────────────────────
+
+function optionsGetTrainerBusySlots(payload, _ctx) {
+  const trainerId = vUuid(vRequired(payload.trainerId, 'trainerId'), 'trainerId');
+  const fromUtc = vIsoDate(vRequired(payload.fromUtc, 'fromUtc'), 'fromUtc');
+  const toUtc = vIsoDate(vRequired(payload.toUtc, 'toUtc'), 'toUtc');
+
+  const fromTs = new Date(fromUtc).getTime();
+  const toTs = new Date(toUtc).getTime();
+  const activeStates = ['solicitado', 'confirmado', 'pactado'];
+
+  const busy = dbListAll('agendamientos', function (b) {
+    if (b.entrenador_id !== trainerId) return false;
+    if (activeStates.indexOf(String(b.estado)) === -1) return false;
+    if (!b.fecha_inicio_utc) return false;
+    const t = new Date(b.fecha_inicio_utc).getTime();
+    return t >= fromTs && t <= toTs;
+  });
+
+  return {
+    busy: busy.map(function (b) {
+      return {
+        fechaInicioUtc: b.fecha_inicio_utc,
+        duracionMin: Number(b.duracion_min) || 60,
+        tipo: b.tipo,
+      };
+    }),
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// dashboard.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * dashboard.gs — Endpoints de lectura para los dashboards.
+ *
+ * Por ahora cubre dashboard del cliente (Iter 5). Trainer y Admin en Iter 6/7.
+ */
+
+// ──────────────────────────────────────────────────────────────────────────
+// Dashboard del usuario (cliente)
+// ──────────────────────────────────────────────────────────────────────────
+
+function dashboardGetUser(_payload, ctx) {
+  const userId = ctx.userId;
+  const nowDate = new Date();
+
+  // 1. Próximo entrenamiento (futuro, no cancelado)
+  const futurosEstados = ['solicitado', 'confirmado', 'pactado', 'requiere_autorizacion'];
+  const futuros = dbListAll('agendamientos', function (b) {
+    return b.user_id === userId
+      && futurosEstados.indexOf(String(b.estado)) !== -1
+      && b.fecha_inicio_utc
+      && new Date(b.fecha_inicio_utc) > nowDate;
+  });
+  futuros.sort(function (a, b) {
+    return new Date(a.fecha_inicio_utc) - new Date(b.fecha_inicio_utc);
+  });
+  const next = futuros[0] || null;
+
+  let proximoEntrenamiento = null;
+  if (next) {
+    const t = next.entrenador_id ? dbFindById('usuarios', next.entrenador_id) : null;
+    const s = next.sede_id ? dbFindById('sedes', next.sede_id) : null;
+    proximoEntrenamiento = {
+      id: next.id,
+      fechaInicioUtc: next.fecha_inicio_utc,
+      duracionMin: Number(next.duracion_min) || 60,
+      tipo: next.tipo,
+      estado: next.estado,
+      entrenador: t ? { id: t.id, nombres: t.nombres, apellidos: t.apellidos, nick: t.nick } : null,
+      sede: s ? { id: s.id, nombre: s.nombre, ciudad: s.ciudad } : null,
+    };
+  }
+
+  // 2. Plan activo
+  const planesActivos = dbListAll('planes_usuario', function (p) {
+    return p.user_id === userId && p.estado === 'active';
+  });
+  let planActivo = null;
+  if (planesActivos.length > 0) {
+    planesActivos.sort(function (a, b) {
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+    const p = planesActivos[0];
+    const cat = dbFindById('planes_catalogo', p.plan_catalogo_id);
+    const restantes = Math.max(0, Number(p.sesiones_totales) - Number(p.sesiones_consumidas));
+    const diasRestantes = Math.ceil(
+      (new Date(p.fecha_vencimiento_utc).getTime() - nowDate.getTime()) / 86_400_000
+    );
+    let estadoVisual = 'plan-activo';
+    if (diasRestantes < 0) estadoVisual = 'plan-vencido';
+    else if (diasRestantes <= 7) estadoVisual = 'plan-vence';
+    planActivo = {
+      id: p.id,
+      nombre: cat ? cat.nombre : 'Plan',
+      tipo: cat ? cat.tipo : '',
+      sesionesRestantes: restantes,
+      sesionesTotales: Number(p.sesiones_totales),
+      sesionesConsumidas: Number(p.sesiones_consumidas),
+      fechaVencimientoUtc: p.fecha_vencimiento_utc,
+      diasRestantes: diasRestantes,
+      estadoVisual: estadoVisual,
+    };
+  }
+
+  // 3. Racha de asistencia (sesiones completadas consecutivas, hacia atrás)
+  const completadas = dbListAll('agendamientos', function (b) {
+    return b.user_id === userId && b.estado === 'completado';
+  });
+  completadas.sort(function (a, b) {
+    return new Date(b.fecha_inicio_utc) - new Date(a.fecha_inicio_utc);
+  });
+  let racha = 0;
+  for (let i = 0; i < completadas.length; i++) {
+    const asist = dbFindBy('asistencia', 'agendamiento_id', completadas[i].id);
+    if (asist && (asist.presente === true || asist.presente === 'TRUE')) {
+      racha++;
+    } else if (asist && asist.presente === false) {
+      break;
+    } else {
+      // Sin registro de asistencia — asumimos completada cuenta para racha
+      racha++;
+    }
+  }
+
+  // 4. Alertas no leídas (top 5)
+  const alertas = dbListAll('alertas', function (a) {
+    return a.user_id === userId && a.leida !== true && a.leida !== 'TRUE';
+  });
+  alertas.sort(function (a, b) {
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+
+  return {
+    proximoEntrenamiento: proximoEntrenamiento,
+    planActivo: planActivo,
+    racha: racha,
+    sesionesCompletadas: completadas.length,
+    alertasNoLeidas: alertas.length,
+    alertas: alertas.slice(0, 5),
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Mi plan (detalle + historial)
+// ──────────────────────────────────────────────────────────────────────────
+
+function dashboardGetMyPlan(_payload, ctx) {
+  const userId = ctx.userId;
+  const planes = dbListAll('planes_usuario', function (p) {
+    return p.user_id === userId;
+  });
+  planes.sort(function (a, b) {
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+
+  const enriquecidos = planes.map(function (p) {
+    const cat = dbFindById('planes_catalogo', p.plan_catalogo_id);
+    const t = p.entrenador_id ? dbFindById('usuarios', p.entrenador_id) : null;
+    return {
+      id: p.id,
+      nombre: cat ? cat.nombre : 'Plan',
+      tipo: cat ? cat.tipo : '',
+      descripcion: cat ? cat.descripcion : '',
+      sesionesTotales: Number(p.sesiones_totales),
+      sesionesConsumidas: Number(p.sesiones_consumidas),
+      sesionesRestantes: Math.max(0, Number(p.sesiones_totales) - Number(p.sesiones_consumidas)),
+      fechaCompraUtc: p.fecha_compra_utc,
+      fechaVencimientoUtc: p.fecha_vencimiento_utc,
+      precio: Number(p.precio_pagado),
+      moneda: p.moneda,
+      estado: p.estado,
+      entrenador: t ? { id: t.id, nombres: t.nombres, apellidos: t.apellidos, nick: t.nick } : null,
+      notas: p.notas,
+    };
+  });
+
+  return {
+    activo: enriquecidos.find(function (p) { return p.estado === 'active'; }) || null,
+    historial: enriquecidos,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Perfil — el usuario logueado consulta o actualiza sus datos
+// ──────────────────────────────────────────────────────────────────────────
+
+function dashboardGetProfile(_payload, ctx) {
+  const user = dbFindById('usuarios', ctx.userId);
+  if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
+  return auth_publicUserShape_(user);
+}
+
+function dashboardUpdateProfile(payload, ctx) {
+  const allowed = ['nombres', 'apellidos', 'nick', 'celular',
+                   'preferencias_notif', 'privacidad_fotos'];
+  const patch = {};
+  for (let i = 0; i < allowed.length; i++) {
+    const k = allowed[i];
+    if (k in payload) {
+      if (k === 'preferencias_notif' && typeof payload[k] === 'object') {
+        patch[k] = payload[k];
+      } else if (k === 'nick') {
+        patch[k] = vString(payload[k], 'nick', { min: 2, max: 30 });
+      } else if (k === 'nombres' || k === 'apellidos') {
+        patch[k] = vString(payload[k], k, { min: 1, max: 80 });
+      } else if (k === 'celular') {
+        patch[k] = vString(payload[k], 'celular', { max: 20 });
+      } else if (k === 'privacidad_fotos') {
+        patch[k] = vEnum(payload[k], 'privacidad_fotos',
+          ['solo_yo', 'mi_entrenador', 'mi_grupo', 'publico']);
+      }
+    }
+  }
+  patch.updated_at = dbNowUtc();
+  const before = dbFindById('usuarios', ctx.userId);
+  const updated = dbUpdateById('usuarios', ctx.userId, patch);
+
+  auditOk(ctx.userId, 'update_profile', 'usuario', ctx.userId,
+    JSON.stringify(before), JSON.stringify(updated), ctx.reqMeta);
+
+  return auth_publicUserShape_(updated);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// bookings.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * bookings.gs — Patrón booking-ID con LockService para evitar doble
+ * agendamiento concurrente.
+ *
+ * Documento de respaldo: docs/01-arquitectura.md §4
+ *
+ * Flujo:
+ *   1. Frontend entra a "Agendar" → createDraftBooking() crea fila estado=borrador
+ *   2. Usuario completa formulario → submitBooking() actualiza la fila bajo lock
+ *   3. Trigger horario marca borradores expirados (>10 min)
+ *   4. cancelBooking() solo aplica a estados no-finales
+ */
+
+// ──────────────────────────────────────────────────────────────────────────
+// Crear borrador — al entrar a la pantalla de agendar
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookingsCreateDraft(_payload, ctx) {
+  const userId = ctx.userId;
+  const now = dbNowUtc();
+
+  // Limpiar borradores antiguos del mismo user antes de crear uno nuevo
+  bookings_expireOldDrafts_(userId, now);
+
+  const id = cryptoUuid();
+  dbInsert('agendamientos', {
+    id: id,
+    user_id: userId,
+    entrenador_id: '',
+    sede_id: '',
+    plan_usuario_id: '',
+    grupo_id: '',
+    tipo: '',
+    fecha_inicio_utc: '',
+    duracion_min: '',
+    capacidad_max: '',
+    estado: 'borrador',
+    color: '',
+    visibilidad_nombres: false,
+    motivo_cancelacion: '',
+    cancelado_por: '',
+    cancelado_at_utc: '',
+    dentro_margen: '',
+    requiere_autorizacion: false,
+    autorizado_por: '',
+    autorizado_at_utc: '',
+    notas_entrenador: '',
+    notas_usuario: '',
+    created_at: now,
+    updated_at: now,
+    created_by: userId,
+  });
+
+  return { bookingId: id };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Submit — completa los datos del booking bajo LockService
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookingsSubmit(payload, ctx) {
+  const bookingId = vUuid(vRequired(payload.bookingId, 'bookingId'), 'bookingId');
+  const trainerId = vUuid(vRequired(payload.entrenadorId, 'entrenadorId'), 'entrenadorId');
+  const fechaInicio = vIsoDate(vRequired(payload.fechaInicioUtc, 'fechaInicioUtc'), 'fechaInicioUtc');
+  const tipo = vEnum(payload.tipo || 'personalizado', 'tipo',
+    ['personalizado', 'semipersonalizado', 'grupal']);
+  const sedeId = payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '';
+  const planUsuarioId = payload.planUsuarioId ? vUuid(payload.planUsuarioId, 'planUsuarioId') : '';
+  const duracionMin = payload.duracionMin ? vNumber(payload.duracionMin, 'duracionMin', { min: 15, max: 240, int: true }) : 60;
+  const notas = payload.notas ? vString(payload.notas, 'notas', { max: 500 }) : '';
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10_000)) {
+    throw _bookingErr_('SLOT_BUSY', 'El sistema está ocupado. Intenta en unos segundos.');
+  }
+
+  try {
+    const draft = dbFindById('agendamientos', bookingId);
+    if (!draft || draft.user_id !== ctx.userId) {
+      throw _bookingErr_('NOT_FOUND', 'Agendamiento no encontrado');
+    }
+    if (draft.estado !== 'borrador') {
+      throw _bookingErr_('INVALID_STATE', 'Este borrador ya no se puede completar');
+    }
+
+    // Verificar que el trainer existe y está activo
+    const trainer = dbFindById('usuarios', trainerId);
+    if (!trainer || trainer.rol !== 'trainer' || trainer.estado !== 'active') {
+      throw _bookingErr_('TRAINER_NOT_AVAILABLE', 'El entrenador no está disponible');
+    }
+
+    // Conflicto: ¿hay otra sesión activa del trainer en ese horario?
+    const conflicts = dbListAll('agendamientos', function (b) {
+      if (b.entrenador_id !== trainerId) return false;
+      if (!['solicitado', 'confirmado', 'pactado'].includes(String(b.estado))) return false;
+      return bookings_overlaps_(b.fecha_inicio_utc, Number(b.duracion_min) || 60, fechaInicio, duracionMin);
+    });
+    if (conflicts.length > 0 && tipo === 'personalizado') {
+      throw _bookingErr_('SLOT_TAKEN', 'Ese horario ya no está disponible');
+    }
+
+    // Plan: ¿activo y vigente para esa fecha?
+    let requireAuth = false;
+    let usePlanId = '';
+    if (planUsuarioId) {
+      const plan = dbFindById('planes_usuario', planUsuarioId);
+      if (!plan || plan.user_id !== ctx.userId) {
+        throw _bookingErr_('PLAN_INVALID', 'Plan inválido');
+      }
+      if (plan.estado !== 'active') {
+        requireAuth = true;
+      } else if (new Date(fechaInicio) > new Date(plan.fecha_vencimiento_utc)) {
+        requireAuth = true;
+      } else if (Number(plan.sesiones_consumidas) >= Number(plan.sesiones_totales)) {
+        requireAuth = true;
+      }
+      usePlanId = plan.id;
+    } else {
+      // Sin plan, requiere autorización del entrenador
+      requireAuth = true;
+    }
+
+    // Snapshot de visibilidad del entrenador al momento de creación
+    const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+    const visibilityNames = trainerProfile
+      ? trainerProfile.visibilidad_default === 'nombres_visibles'
+      : false;
+
+    const now = dbNowUtc();
+    const before = JSON.stringify({ estado: draft.estado });
+    const updated = dbUpdateById('agendamientos', bookingId, {
+      entrenador_id: trainerId,
+      sede_id: sedeId,
+      plan_usuario_id: usePlanId,
+      tipo: tipo,
+      fecha_inicio_utc: fechaInicio,
+      duracion_min: duracionMin,
+      estado: requireAuth ? 'requiere_autorizacion' : 'solicitado',
+      visibilidad_nombres: visibilityNames,
+      requiere_autorizacion: requireAuth,
+      notas_usuario: notas,
+      updated_at: now,
+    });
+
+    auditOk(ctx.userId, 'create_booking', 'agendamiento', bookingId,
+      before, JSON.stringify({ estado: updated.estado }), ctx.reqMeta);
+
+    return { booking: updated };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Cancelar
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookingsCancel(payload, ctx) {
+  const bookingId = vUuid(vRequired(payload.bookingId, 'bookingId'), 'bookingId');
+  const motivo = payload.motivo ? vString(payload.motivo, 'motivo', { max: 500 }) : '';
+
+  const booking = dbFindById('agendamientos', bookingId);
+  if (!booking) throw _bookingErr_('NOT_FOUND', 'Agendamiento no encontrado');
+
+  // Permisos: dueño del booking, entrenador asignado, o admin
+  const canCancel = (
+    booking.user_id === ctx.userId ||
+    booking.entrenador_id === ctx.userId ||
+    ctx.role === 'admin' ||
+    ctx.role === 'super_admin'
+  );
+  if (!canCancel) throw _bookingErr_('FORBIDDEN', 'No puedes cancelar este agendamiento');
+
+  const finalStates = ['cancelado', 'completado', 'no-asistido', 'rechazado', 'expirado'];
+  if (finalStates.indexOf(String(booking.estado)) !== -1) {
+    throw _bookingErr_('INVALID_STATE', 'Este agendamiento ya está finalizado');
+  }
+  if (booking.estado === 'borrador') {
+    // Borradores se pueden "cancelar" silenciosamente → expirado
+    dbUpdateById('agendamientos', bookingId, {
+      estado: 'expirado',
+      updated_at: dbNowUtc(),
+    });
+    return { booking: { id: bookingId, estado: 'expirado' } };
+  }
+
+  // Calcular si está dentro o fuera del margen de la política aplicable
+  const policy = bookings_getApplicablePolicy_(booking);
+  const ventanaHoras = policy ? Number(policy.ventana_horas) : 12;
+  const horasParaInicio = (new Date(booking.fecha_inicio_utc).getTime() - Date.now()) / 3_600_000;
+  const dentroMargen = horasParaInicio >= ventanaHoras;
+
+  const now = dbNowUtc();
+  const before = JSON.stringify({ estado: booking.estado });
+  const updated = dbUpdateById('agendamientos', bookingId, {
+    estado: 'cancelado',
+    motivo_cancelacion: motivo,
+    cancelado_por: ctx.userId,
+    cancelado_at_utc: now,
+    dentro_margen: dentroMargen,
+    updated_at: now,
+  });
+
+  auditOk(ctx.userId, 'cancel_booking', 'agendamiento', bookingId,
+    before, JSON.stringify({ estado: 'cancelado', dentroMargen: dentroMargen }), ctx.reqMeta);
+
+  return {
+    booking: updated,
+    dentroMargen: dentroMargen,
+    politicaAplicada: policy ? { nombre: policy.nombre, ventanaHoras: ventanaHoras } : null,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Listar bookings del usuario en un rango (para calendario)
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookingsListMine(payload, ctx) {
+  const fromUtc = payload.fromUtc ? vIsoDate(payload.fromUtc, 'fromUtc') : null;
+  const toUtc = payload.toUtc ? vIsoDate(payload.toUtc, 'toUtc') : null;
+  const includeStates = Array.isArray(payload.includeStates)
+    ? payload.includeStates
+    : ['solicitado', 'confirmado', 'pactado', 'completado', 'cancelado',
+       'no-asistido', 'requiere_autorizacion', 'rechazado'];
+
+  const userId = ctx.userId;
+  const fromTs = fromUtc ? new Date(fromUtc).getTime() : 0;
+  const toTs = toUtc ? new Date(toUtc).getTime() : Number.MAX_SAFE_INTEGER;
+
+  const bookings = dbListAll('agendamientos', function (b) {
+    if (b.user_id !== userId) return false;
+    if (includeStates.indexOf(String(b.estado)) === -1) return false;
+    if (!b.fecha_inicio_utc) return false;
+    const t = new Date(b.fecha_inicio_utc).getTime();
+    return t >= fromTs && t <= toTs;
+  });
+
+  bookings.sort(function (a, b) {
+    return new Date(a.fecha_inicio_utc) - new Date(b.fecha_inicio_utc);
+  });
+
+  // Enriquecer con datos del entrenador y sede
+  const trainerCache = {};
+  const sedeCache = {};
+  return bookings.map(function (b) {
+    let trainerData = null;
+    if (b.entrenador_id) {
+      if (!(b.entrenador_id in trainerCache)) {
+        const t = dbFindById('usuarios', b.entrenador_id);
+        trainerCache[b.entrenador_id] = t
+          ? { id: t.id, nombres: t.nombres, apellidos: t.apellidos, nick: t.nick }
+          : null;
+      }
+      trainerData = trainerCache[b.entrenador_id];
+    }
+    let sedeData = null;
+    if (b.sede_id) {
+      if (!(b.sede_id in sedeCache)) {
+        const s = dbFindById('sedes', b.sede_id);
+        sedeCache[b.sede_id] = s ? { id: s.id, nombre: s.nombre, ciudad: s.ciudad } : null;
+      }
+      sedeData = sedeCache[b.sede_id];
+    }
+    return Object.assign({}, b, { entrenador: trainerData, sede: sedeData });
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Trigger time-driven — limpieza de borradores expirados
+// (Configurar manualmente desde el editor: cada 10 min)
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookingsExpireOldDrafts() {
+  const now = dbNowUtc();
+  const ttlMin = bookings_getDraftTtl_();
+  const cutoff = dbAddMinutes(now, -ttlMin);
+
+  const drafts = dbListAll('agendamientos', function (b) {
+    return b.estado === 'borrador' && b.created_at < cutoff;
+  });
+
+  for (let i = 0; i < drafts.length; i++) {
+    dbUpdateById('agendamientos', drafts[i].id, {
+      estado: 'expirado',
+      updated_at: now,
+    });
+  }
+  Logger.log('Borradores expirados: ' + drafts.length);
+  return drafts.length;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Helpers internos
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookings_expireOldDrafts_(userId, now) {
+  const ttlMin = bookings_getDraftTtl_();
+  const cutoff = dbAddMinutes(now, -ttlMin);
+  const drafts = dbListAll('agendamientos', function (b) {
+    return b.user_id === userId && b.estado === 'borrador' && b.created_at < cutoff;
+  });
+  for (let i = 0; i < drafts.length; i++) {
+    dbUpdateById('agendamientos', drafts[i].id, { estado: 'expirado', updated_at: now });
+  }
+}
+
+function bookings_overlaps_(aStart, aDur, bStart, bDur) {
+  const aS = new Date(aStart).getTime();
+  const aE = aS + (Number(aDur) || 60) * 60_000;
+  const bS = new Date(bStart).getTime();
+  const bE = bS + (Number(bDur) || 60) * 60_000;
+  return aS < bE && bS < aE;
+}
+
+function bookings_getDraftTtl_() {
+  const cfg = dbFindById('config', 'app.draft_booking_ttl_minutes');
+  return cfg ? Number(cfg.value) : 10;
+}
+
+function bookings_getApplicablePolicy_(booking) {
+  // Prioridad: política del entrenador > sede > global
+  if (booking.entrenador_id) {
+    const tp = dbFindById('entrenadores_perfil', booking.entrenador_id);
+    if (tp && tp.politica_cancelacion_id) {
+      const p = dbFindById('politicas_cancelacion', tp.politica_cancelacion_id);
+      if (p && p.estado === 'active') return p;
+    }
+  }
+  if (booking.sede_id) {
+    const sedePolicies = dbListAll('politicas_cancelacion', function (p) {
+      return p.aplica_a === 'sede' && p.entidad_id === booking.sede_id && p.estado === 'active';
+    });
+    if (sedePolicies.length > 0) return sedePolicies[0];
+  }
+  const globalPolicies = dbListAll('politicas_cancelacion', function (p) {
+    return p.aplica_a === 'global' && p.estado === 'active';
+  });
+  return globalPolicies.length > 0 ? globalPolicies[0] : null;
+}
+
+function _bookingErr_(code, message) {
+  const e = new Error(message);
+  e.code = code;
+  return e;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
 // Code.gs
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1693,6 +2554,49 @@ function _handleAction(action, rawPayload, token, reqMeta) {
 
     case 'resetPassword':
       return authResetPassword(payload, reqMeta);
+
+    // ── Dashboard / perfil (Iter 5) ──────────────────────────────────────
+    case 'getUserDashboard':
+      return dashboardGetUser(payload, ctx);
+
+    case 'getMyPlan':
+      return dashboardGetMyPlan(payload, ctx);
+
+    case 'getProfile':
+      return dashboardGetProfile(payload, ctx);
+
+    case 'updateProfile':
+      return dashboardUpdateProfile(payload, ctx);
+
+    // ── Bookings (Iter 5) ────────────────────────────────────────────────
+    case 'createDraftBooking':
+      return bookingsCreateDraft(payload, ctx);
+
+    case 'submitBooking':
+      return bookingsSubmit(payload, ctx);
+
+    case 'cancelBooking':
+      return bookingsCancel(payload, ctx);
+
+    case 'listMyBookings':
+      return bookingsListMine(payload, ctx);
+
+    // ── Options (Iter 5) ─────────────────────────────────────────────────
+    case 'getBookingOptions':
+      return optionsGetBookingOptions(payload, ctx);
+
+    case 'getTrainerBusySlots':
+      return optionsGetTrainerBusySlots(payload, ctx);
+
+    // ── Alertas (Iter 5) ─────────────────────────────────────────────────
+    case 'listAlerts':
+      return alertsListMine(payload, ctx);
+
+    case 'markAlertRead':
+      return alertsMarkRead(payload, ctx);
+
+    case 'markAllAlertsRead':
+      return alertsMarkAllRead(payload, ctx);
 
     // ── Default ──────────────────────────────────────────────────────────
     default:
@@ -2003,6 +2907,262 @@ function bootstrap_generateActivationLink_(userId, justCreated) {
     used_at: '',
   });
   return token;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// seedDevData — crea entrenador + sede + plan + cliente de prueba
+// Útil para Iteración 5: el cliente puede agendar antes de que existan UI
+// de admin/entrenador para crear estos datos manualmente.
+// IDEMPOTENTE — si ya existe el cliente test, solo regenera el activation.
+// ──────────────────────────────────────────────────────────────────────────
+
+const SEED_TRAINER = {
+  email: 'andrea.entrenadora@alfallo.test',
+  nombres: 'Andrea',
+  apellidos: 'Gómez',
+  nick: 'andrea',
+};
+
+const SEED_CLIENT = {
+  email: 'cliente.test@alfallo.test',
+  nombres: 'Carlos',
+  apellidos: 'Prueba',
+  nick: 'carlitos',
+};
+
+const SEED_SEDE = {
+  nombre: 'Sede Norte',
+  codigo: 'NOR-01',
+  direccion: 'Cra 11 # 90-50',
+  ciudad: 'Bogotá',
+};
+
+const SEED_PLAN = {
+  nombre: '10 sesiones personalizadas',
+  descripcion: 'Plan estándar de 10 sesiones, vigencia 60 días',
+  tipo: 'personalizado',
+  numSesiones: 10,
+  precio: 600000,
+  vigenciaDias: 60,
+};
+
+function seedDevData() {
+  Logger.log('=== SEED DEV DATA ===');
+
+  // Necesita PEPPER (bootstrap previo)
+  if (!PropertiesService.getScriptProperties().getProperty('PEPPER')) {
+    Logger.log('✗ PEPPER no configurado. Ejecuta bootstrap() primero.');
+    return;
+  }
+
+  const now = dbNowUtc();
+
+  // 1. Trainer
+  let trainerId = dbIndexLookup('email', SEED_TRAINER.email);
+  if (!trainerId) {
+    trainerId = cryptoUuid();
+    dbInsert('usuarios', {
+      id: trainerId,
+      email: SEED_TRAINER.email,
+      rol: 'trainer',
+      nombres: SEED_TRAINER.nombres,
+      apellidos: SEED_TRAINER.apellidos,
+      nick: SEED_TRAINER.nick,
+      cedula: '', celular: '3001234567', foto_url: '',
+      estado: 'active',
+      preferencias_notif: { in_app: true, email: true },
+      privacidad_fotos: 'solo_yo',
+      entrenador_asignado_id: '',
+      created_at: now, updated_at: now, last_login_at: '',
+      created_by: 'seed',
+    });
+    dbIndexUpsert('email', SEED_TRAINER.email, trainerId);
+    dbIndexUpsert('nick', SEED_TRAINER.nick, trainerId);
+
+    // Hash de password fijo "trainer123" para pruebas (NO usar en prod real)
+    const seedPwd = cryptoHashPassword('trainer123');
+    dbInsert('usuarios_pwd', {
+      user_id: trainerId, salt: seedPwd.salt, hash: seedPwd.hash,
+      algoritmo: seedPwd.algoritmo, updated_at: now, forzar_cambio: false,
+    });
+
+    // Perfil
+    dbInsert('entrenadores_perfil', {
+      user_id: trainerId,
+      perfil_profesional: 'Entrenadora certificada en funcional y pesas. 5 años de experiencia.',
+      habilidades: 'pesas,cardio,funcional',
+      tipos_entrenamiento: 'personalizado,semipersonalizado',
+      certificaciones: 'NSCA-CPT 2021',
+      restricciones: '',
+      redes_sociales: { ig: '@andrea.gym' },
+      franja_trabajo: { lun: ['06:00-12:00', '15:00-20:00'], mar: ['06:00-12:00'] },
+      politica_cancelacion_id: '',
+      visibilidad_default: 'nombres_visibles',
+      cupos_estrictos: true,
+      meta_economica_mensual: 5000000,
+      meta_usuarios_activos: 20,
+      calificacion_promedio: 0,
+      total_calificaciones: 0,
+      created_at: now, updated_at: now,
+    });
+
+    Logger.log('✓ Trainer creado: ' + SEED_TRAINER.email + ' (password: trainer123)');
+  } else {
+    Logger.log('• Trainer ya existía');
+  }
+
+  // 2. Sede
+  const sedesExisting = dbListAll('sedes', function (s) {
+    return s.codigo_interno === SEED_SEDE.codigo;
+  });
+  let sedeId;
+  if (sedesExisting.length > 0) {
+    sedeId = sedesExisting[0].id;
+    Logger.log('• Sede ya existía');
+  } else {
+    sedeId = cryptoUuid();
+    dbInsert('sedes', {
+      id: sedeId,
+      nombre: SEED_SEDE.nombre,
+      codigo_interno: SEED_SEDE.codigo,
+      direccion: SEED_SEDE.direccion,
+      ciudad: SEED_SEDE.ciudad,
+      barrio: 'Chicó',
+      telefono: '6011234567',
+      responsable: 'Andrea Gómez',
+      horarios: { lun: '05:00-22:00', mar: '05:00-22:00', mie: '05:00-22:00', jue: '05:00-22:00', vie: '05:00-22:00', sab: '07:00-14:00' },
+      capacidad: 50,
+      observaciones: '',
+      servicios: 'pesas,cardio,funcional',
+      reglas: 'Toalla obligatoria. Limpiar equipo después de usar.',
+      estado: 'active',
+      created_at: now, updated_at: now,
+    });
+    Logger.log('✓ Sede creada: ' + SEED_SEDE.nombre);
+
+    // Asignar trainer a sede
+    dbInsert('sedes_entrenadores', {
+      id: cryptoUuid(),
+      sede_id: sedeId,
+      entrenador_id: trainerId,
+      desde: now, hasta: '', estado: 'active',
+    });
+  }
+
+  // 3. Plan en catálogo
+  const planesExisting = dbListAll('planes_catalogo', function (p) {
+    return p.nombre === SEED_PLAN.nombre && p.entrenador_id === trainerId;
+  });
+  let planCatalogoId;
+  if (planesExisting.length > 0) {
+    planCatalogoId = planesExisting[0].id;
+    Logger.log('• Plan en catálogo ya existía');
+  } else {
+    planCatalogoId = cryptoUuid();
+    dbInsert('planes_catalogo', {
+      id: planCatalogoId,
+      nombre: SEED_PLAN.nombre,
+      descripcion: SEED_PLAN.descripcion,
+      tipo: SEED_PLAN.tipo,
+      num_sesiones: SEED_PLAN.numSesiones,
+      precio: SEED_PLAN.precio,
+      moneda: 'COP',
+      vigencia_dias: SEED_PLAN.vigenciaDias,
+      entrenador_id: trainerId,
+      sede_id: sedeId,
+      estado: 'active',
+      created_at: now, updated_at: now,
+      created_by: 'seed',
+    });
+    Logger.log('✓ Plan en catálogo creado: ' + SEED_PLAN.nombre);
+  }
+
+  // 4. Cliente de prueba
+  let clientId = dbIndexLookup('email', SEED_CLIENT.email);
+  if (!clientId) {
+    clientId = cryptoUuid();
+    dbInsert('usuarios', {
+      id: clientId,
+      email: SEED_CLIENT.email,
+      rol: 'client',
+      nombres: SEED_CLIENT.nombres,
+      apellidos: SEED_CLIENT.apellidos,
+      nick: SEED_CLIENT.nick,
+      cedula: '', celular: '3009876543', foto_url: '',
+      estado: 'pending',
+      preferencias_notif: { in_app: true, email: true },
+      privacidad_fotos: 'solo_yo',
+      entrenador_asignado_id: trainerId,
+      created_at: now, updated_at: now, last_login_at: '',
+      created_by: 'seed',
+    });
+    dbIndexUpsert('email', SEED_CLIENT.email, clientId);
+    dbIndexUpsert('nick', SEED_CLIENT.nick, clientId);
+
+    // Asignarlo a la sede
+    dbInsert('sedes_usuarios', {
+      id: cryptoUuid(),
+      sede_id: sedeId,
+      user_id: clientId,
+      principal: true,
+      created_at: now,
+    });
+
+    // Asignarle el plan
+    const fechaCompra = now;
+    const fechaVenc = dbAddHours(now, SEED_PLAN.vigenciaDias * 24);
+    dbInsert('planes_usuario', {
+      id: cryptoUuid(),
+      user_id: clientId,
+      plan_catalogo_id: planCatalogoId,
+      entrenador_id: trainerId,
+      sede_id: sedeId,
+      fecha_compra_utc: fechaCompra,
+      fecha_vencimiento_utc: fechaVenc,
+      sesiones_totales: SEED_PLAN.numSesiones,
+      sesiones_consumidas: 0,
+      precio_pagado: SEED_PLAN.precio,
+      moneda: 'COP',
+      estado: 'active',
+      transferido_a: '', transferido_at: '', transferido_por: '',
+      notas: 'Plan asignado por seed',
+      created_at: now, updated_at: now,
+    });
+
+    Logger.log('✓ Cliente creado: ' + SEED_CLIENT.email);
+  } else {
+    Logger.log('• Cliente ya existía');
+  }
+
+  // 5. Token de activación para el cliente (si no tiene password)
+  const clientPwd = dbFindById('usuarios_pwd', clientId);
+  if (!clientPwd) {
+    const existingTokens = dbListAll('tokens_temporales', function (t) {
+      return t.user_id === clientId && t.tipo === 'activation' && !t.used_at
+        && new Date(t.expires_at) > new Date();
+    });
+    let token;
+    if (existingTokens.length > 0) {
+      token = existingTokens[0].token;
+    } else {
+      token = cryptoRandomHex(32);
+      dbInsert('tokens_temporales', {
+        token: token, tipo: 'activation', user_id: clientId,
+        created_at: now, expires_at: dbAddHours(now, 24), used_at: '',
+      });
+    }
+    Logger.log('');
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('🔑 ACTIVAR CLIENTE DE PRUEBA');
+    Logger.log('   Email: ' + SEED_CLIENT.email);
+    Logger.log('   Link de activación (válido 24h):');
+    Logger.log('   https://dyoma-web.github.io/alfallo/#/activate?token=' + token);
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('');
+  }
+
+  Logger.log('=== SEED COMPLETADO ===');
+  return { ok: true, trainerId: trainerId, sedeId: sedeId, planCatalogoId: planCatalogoId, clientId: clientId };
 }
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -271,6 +271,262 @@ function bootstrap_generateActivationLink_(userId, justCreated) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// seedDevData — crea entrenador + sede + plan + cliente de prueba
+// Útil para Iteración 5: el cliente puede agendar antes de que existan UI
+// de admin/entrenador para crear estos datos manualmente.
+// IDEMPOTENTE — si ya existe el cliente test, solo regenera el activation.
+// ──────────────────────────────────────────────────────────────────────────
+
+const SEED_TRAINER = {
+  email: 'andrea.entrenadora@alfallo.test',
+  nombres: 'Andrea',
+  apellidos: 'Gómez',
+  nick: 'andrea',
+};
+
+const SEED_CLIENT = {
+  email: 'cliente.test@alfallo.test',
+  nombres: 'Carlos',
+  apellidos: 'Prueba',
+  nick: 'carlitos',
+};
+
+const SEED_SEDE = {
+  nombre: 'Sede Norte',
+  codigo: 'NOR-01',
+  direccion: 'Cra 11 # 90-50',
+  ciudad: 'Bogotá',
+};
+
+const SEED_PLAN = {
+  nombre: '10 sesiones personalizadas',
+  descripcion: 'Plan estándar de 10 sesiones, vigencia 60 días',
+  tipo: 'personalizado',
+  numSesiones: 10,
+  precio: 600000,
+  vigenciaDias: 60,
+};
+
+function seedDevData() {
+  Logger.log('=== SEED DEV DATA ===');
+
+  // Necesita PEPPER (bootstrap previo)
+  if (!PropertiesService.getScriptProperties().getProperty('PEPPER')) {
+    Logger.log('✗ PEPPER no configurado. Ejecuta bootstrap() primero.');
+    return;
+  }
+
+  const now = dbNowUtc();
+
+  // 1. Trainer
+  let trainerId = dbIndexLookup('email', SEED_TRAINER.email);
+  if (!trainerId) {
+    trainerId = cryptoUuid();
+    dbInsert('usuarios', {
+      id: trainerId,
+      email: SEED_TRAINER.email,
+      rol: 'trainer',
+      nombres: SEED_TRAINER.nombres,
+      apellidos: SEED_TRAINER.apellidos,
+      nick: SEED_TRAINER.nick,
+      cedula: '', celular: '3001234567', foto_url: '',
+      estado: 'active',
+      preferencias_notif: { in_app: true, email: true },
+      privacidad_fotos: 'solo_yo',
+      entrenador_asignado_id: '',
+      created_at: now, updated_at: now, last_login_at: '',
+      created_by: 'seed',
+    });
+    dbIndexUpsert('email', SEED_TRAINER.email, trainerId);
+    dbIndexUpsert('nick', SEED_TRAINER.nick, trainerId);
+
+    // Hash de password fijo "trainer123" para pruebas (NO usar en prod real)
+    const seedPwd = cryptoHashPassword('trainer123');
+    dbInsert('usuarios_pwd', {
+      user_id: trainerId, salt: seedPwd.salt, hash: seedPwd.hash,
+      algoritmo: seedPwd.algoritmo, updated_at: now, forzar_cambio: false,
+    });
+
+    // Perfil
+    dbInsert('entrenadores_perfil', {
+      user_id: trainerId,
+      perfil_profesional: 'Entrenadora certificada en funcional y pesas. 5 años de experiencia.',
+      habilidades: 'pesas,cardio,funcional',
+      tipos_entrenamiento: 'personalizado,semipersonalizado',
+      certificaciones: 'NSCA-CPT 2021',
+      restricciones: '',
+      redes_sociales: { ig: '@andrea.gym' },
+      franja_trabajo: { lun: ['06:00-12:00', '15:00-20:00'], mar: ['06:00-12:00'] },
+      politica_cancelacion_id: '',
+      visibilidad_default: 'nombres_visibles',
+      cupos_estrictos: true,
+      meta_economica_mensual: 5000000,
+      meta_usuarios_activos: 20,
+      calificacion_promedio: 0,
+      total_calificaciones: 0,
+      created_at: now, updated_at: now,
+    });
+
+    Logger.log('✓ Trainer creado: ' + SEED_TRAINER.email + ' (password: trainer123)');
+  } else {
+    Logger.log('• Trainer ya existía');
+  }
+
+  // 2. Sede
+  const sedesExisting = dbListAll('sedes', function (s) {
+    return s.codigo_interno === SEED_SEDE.codigo;
+  });
+  let sedeId;
+  if (sedesExisting.length > 0) {
+    sedeId = sedesExisting[0].id;
+    Logger.log('• Sede ya existía');
+  } else {
+    sedeId = cryptoUuid();
+    dbInsert('sedes', {
+      id: sedeId,
+      nombre: SEED_SEDE.nombre,
+      codigo_interno: SEED_SEDE.codigo,
+      direccion: SEED_SEDE.direccion,
+      ciudad: SEED_SEDE.ciudad,
+      barrio: 'Chicó',
+      telefono: '6011234567',
+      responsable: 'Andrea Gómez',
+      horarios: { lun: '05:00-22:00', mar: '05:00-22:00', mie: '05:00-22:00', jue: '05:00-22:00', vie: '05:00-22:00', sab: '07:00-14:00' },
+      capacidad: 50,
+      observaciones: '',
+      servicios: 'pesas,cardio,funcional',
+      reglas: 'Toalla obligatoria. Limpiar equipo después de usar.',
+      estado: 'active',
+      created_at: now, updated_at: now,
+    });
+    Logger.log('✓ Sede creada: ' + SEED_SEDE.nombre);
+
+    // Asignar trainer a sede
+    dbInsert('sedes_entrenadores', {
+      id: cryptoUuid(),
+      sede_id: sedeId,
+      entrenador_id: trainerId,
+      desde: now, hasta: '', estado: 'active',
+    });
+  }
+
+  // 3. Plan en catálogo
+  const planesExisting = dbListAll('planes_catalogo', function (p) {
+    return p.nombre === SEED_PLAN.nombre && p.entrenador_id === trainerId;
+  });
+  let planCatalogoId;
+  if (planesExisting.length > 0) {
+    planCatalogoId = planesExisting[0].id;
+    Logger.log('• Plan en catálogo ya existía');
+  } else {
+    planCatalogoId = cryptoUuid();
+    dbInsert('planes_catalogo', {
+      id: planCatalogoId,
+      nombre: SEED_PLAN.nombre,
+      descripcion: SEED_PLAN.descripcion,
+      tipo: SEED_PLAN.tipo,
+      num_sesiones: SEED_PLAN.numSesiones,
+      precio: SEED_PLAN.precio,
+      moneda: 'COP',
+      vigencia_dias: SEED_PLAN.vigenciaDias,
+      entrenador_id: trainerId,
+      sede_id: sedeId,
+      estado: 'active',
+      created_at: now, updated_at: now,
+      created_by: 'seed',
+    });
+    Logger.log('✓ Plan en catálogo creado: ' + SEED_PLAN.nombre);
+  }
+
+  // 4. Cliente de prueba
+  let clientId = dbIndexLookup('email', SEED_CLIENT.email);
+  if (!clientId) {
+    clientId = cryptoUuid();
+    dbInsert('usuarios', {
+      id: clientId,
+      email: SEED_CLIENT.email,
+      rol: 'client',
+      nombres: SEED_CLIENT.nombres,
+      apellidos: SEED_CLIENT.apellidos,
+      nick: SEED_CLIENT.nick,
+      cedula: '', celular: '3009876543', foto_url: '',
+      estado: 'pending',
+      preferencias_notif: { in_app: true, email: true },
+      privacidad_fotos: 'solo_yo',
+      entrenador_asignado_id: trainerId,
+      created_at: now, updated_at: now, last_login_at: '',
+      created_by: 'seed',
+    });
+    dbIndexUpsert('email', SEED_CLIENT.email, clientId);
+    dbIndexUpsert('nick', SEED_CLIENT.nick, clientId);
+
+    // Asignarlo a la sede
+    dbInsert('sedes_usuarios', {
+      id: cryptoUuid(),
+      sede_id: sedeId,
+      user_id: clientId,
+      principal: true,
+      created_at: now,
+    });
+
+    // Asignarle el plan
+    const fechaCompra = now;
+    const fechaVenc = dbAddHours(now, SEED_PLAN.vigenciaDias * 24);
+    dbInsert('planes_usuario', {
+      id: cryptoUuid(),
+      user_id: clientId,
+      plan_catalogo_id: planCatalogoId,
+      entrenador_id: trainerId,
+      sede_id: sedeId,
+      fecha_compra_utc: fechaCompra,
+      fecha_vencimiento_utc: fechaVenc,
+      sesiones_totales: SEED_PLAN.numSesiones,
+      sesiones_consumidas: 0,
+      precio_pagado: SEED_PLAN.precio,
+      moneda: 'COP',
+      estado: 'active',
+      transferido_a: '', transferido_at: '', transferido_por: '',
+      notas: 'Plan asignado por seed',
+      created_at: now, updated_at: now,
+    });
+
+    Logger.log('✓ Cliente creado: ' + SEED_CLIENT.email);
+  } else {
+    Logger.log('• Cliente ya existía');
+  }
+
+  // 5. Token de activación para el cliente (si no tiene password)
+  const clientPwd = dbFindById('usuarios_pwd', clientId);
+  if (!clientPwd) {
+    const existingTokens = dbListAll('tokens_temporales', function (t) {
+      return t.user_id === clientId && t.tipo === 'activation' && !t.used_at
+        && new Date(t.expires_at) > new Date();
+    });
+    let token;
+    if (existingTokens.length > 0) {
+      token = existingTokens[0].token;
+    } else {
+      token = cryptoRandomHex(32);
+      dbInsert('tokens_temporales', {
+        token: token, tipo: 'activation', user_id: clientId,
+        created_at: now, expires_at: dbAddHours(now, 24), used_at: '',
+      });
+    }
+    Logger.log('');
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('🔑 ACTIVAR CLIENTE DE PRUEBA');
+    Logger.log('   Email: ' + SEED_CLIENT.email);
+    Logger.log('   Link de activación (válido 24h):');
+    Logger.log('   https://dyoma-web.github.io/alfallo/#/activate?token=' + token);
+    Logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    Logger.log('');
+  }
+
+  Logger.log('=== SEED COMPLETADO ===');
+  return { ok: true, trainerId: trainerId, sedeId: sedeId, planCatalogoId: planCatalogoId, clientId: clientId };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Diagnóstico — ejecutar para verificar el estado del Sheet sin modificar
 // ──────────────────────────────────────────────────────────────────────────
 

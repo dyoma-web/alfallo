@@ -27,6 +27,10 @@ const ORDER = [
   'audit.gs',
   'email.gs',
   'auth.gs',
+  'alerts.gs',
+  'options.gs',
+  'dashboard.gs',
+  'bookings.gs',
   'Code.gs',
   'bootstrap.gs',
 ];

@@ -105,6 +105,49 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'resetPassword':
       return authResetPassword(payload, reqMeta);
 
+    // ── Dashboard / perfil (Iter 5) ──────────────────────────────────────
+    case 'getUserDashboard':
+      return dashboardGetUser(payload, ctx);
+
+    case 'getMyPlan':
+      return dashboardGetMyPlan(payload, ctx);
+
+    case 'getProfile':
+      return dashboardGetProfile(payload, ctx);
+
+    case 'updateProfile':
+      return dashboardUpdateProfile(payload, ctx);
+
+    // ── Bookings (Iter 5) ────────────────────────────────────────────────
+    case 'createDraftBooking':
+      return bookingsCreateDraft(payload, ctx);
+
+    case 'submitBooking':
+      return bookingsSubmit(payload, ctx);
+
+    case 'cancelBooking':
+      return bookingsCancel(payload, ctx);
+
+    case 'listMyBookings':
+      return bookingsListMine(payload, ctx);
+
+    // ── Options (Iter 5) ─────────────────────────────────────────────────
+    case 'getBookingOptions':
+      return optionsGetBookingOptions(payload, ctx);
+
+    case 'getTrainerBusySlots':
+      return optionsGetTrainerBusySlots(payload, ctx);
+
+    // ── Alertas (Iter 5) ─────────────────────────────────────────────────
+    case 'listAlerts':
+      return alertsListMine(payload, ctx);
+
+    case 'markAlertRead':
+      return alertsMarkRead(payload, ctx);
+
+    case 'markAllAlertsRead':
+      return alertsMarkAllRead(payload, ctx);
+
     // ── Default ──────────────────────────────────────────────────────────
     default:
       throw _err('UNKNOWN_ACTION', 'Acción desconocida: ' + action);
