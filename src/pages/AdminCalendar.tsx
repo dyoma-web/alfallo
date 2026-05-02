@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { AppShell } from '../components/layouts/AppShell';
 import { Card } from '../components/Card';
 import { Icon } from '../components/Icon';
-import { CalendarView, type CalendarBooking } from '../components/calendar/CalendarView';
+import { CalendarView, type CalendarBooking, type UnavailabilityEvent as UnavailabilityEvt } from '../components/calendar/CalendarView';
 import { useApiQuery } from '../lib/useApiQuery';
 
 interface BookingFromApi extends CalendarBooking {
@@ -43,6 +43,23 @@ export default function AdminCalendar() {
   );
 
   const bookings = useMemo(() => data ?? [], [data]);
+
+  // Iter 13: cargar franjas de no-disponibilidad de TODOS los trainers
+  const unavailFrom = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString();
+  }, []);
+  const unavailTo = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() + 60); return d.toISOString();
+  }, []);
+  const { data: unavailability } = useApiQuery<UnavailabilityEvt[]>(
+    'expandUnavailability',
+    {
+      fromUtc: unavailFrom,
+      toUtc: unavailTo,
+      entityId: filterTrainerId || undefined,
+    },
+    { deps: [filterTrainerId] }
+  );
 
   const labelMode =
     filterUserId ? 'tipo' : filterTrainerId ? 'cliente' : 'auto';
@@ -139,6 +156,8 @@ export default function AdminCalendar() {
             ) : (
               <CalendarView
                 bookings={bookings}
+                unavailability={unavailability ?? []}
+                showTrainerInUnavailability
                 defaultView="timeGridWeek"
                 showLabel={labelMode}
                 height={700}

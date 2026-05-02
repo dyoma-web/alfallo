@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppShell } from '../components/layouts/AppShell';
@@ -7,7 +8,7 @@ import { Icon } from '../components/Icon';
 import { StatusBadge, type StatusKind } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
 import { RegisterAttendanceModal } from '../components/RegisterAttendanceModal';
-import { CalendarView, type CalendarBooking } from '../components/calendar/CalendarView';
+import { CalendarView, type CalendarBooking, type UnavailabilityEvent as UnavailabilityEvt } from '../components/calendar/CalendarView';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import {
   formatDate,
@@ -54,6 +55,18 @@ export default function TrainerCalendar() {
   const [registeringAttendance, setRegisteringAttendance] = useState<string | null>(null);
 
   const { data, error, loading, refetch } = useApiQuery<Booking[]>('listMyBookings', {});
+
+  // Iter 13: cargar franjas de no-disponibilidad para mostrar de fondo
+  const unavailFrom = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString();
+  }, []);
+  const unavailTo = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() + 60); return d.toISOString();
+  }, []);
+  const { data: unavailability } = useApiQuery<UnavailabilityEvt[]>(
+    'expandUnavailability',
+    { fromUtc: unavailFrom, toUtc: unavailTo }
+  );
 
   useEffect(() => {
     const stored = localStorage.getItem('alfallo.trainer_calendar_view');
@@ -125,6 +138,7 @@ export default function TrainerCalendar() {
               ) : (
                 <CalendarView
                   bookings={allActive}
+                  unavailability={unavailability ?? []}
                   defaultView="timeGridWeek"
                   showLabel="cliente"
                   height={650}

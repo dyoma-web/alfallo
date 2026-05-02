@@ -251,6 +251,25 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'expandUnavailability':
       return availabilityExpanded(payload, ctx);
 
+    // ── Grupos (Iter 13) ─────────────────────────────────────────────────
+    case 'createGrupo':
+      return gruposCreate(payload, ctx);
+
+    case 'updateGrupo':
+      return gruposUpdate(payload, ctx);
+
+    case 'listGrupos':
+      return gruposList(payload, ctx);
+
+    case 'listGrupoMembers':
+      return gruposListMembers(payload, ctx);
+
+    case 'addGrupoMember':
+      return gruposAddMember(payload, ctx);
+
+    case 'removeGrupoMember':
+      return gruposRemoveMember(payload, ctx);
+
     // ── Options (Iter 5) ─────────────────────────────────────────────────
     case 'getBookingOptions':
       return optionsGetBookingOptions(payload, ctx);

@@ -37,6 +37,7 @@ const AdminCalendar = lazyWithRetry(() => import('./pages/AdminCalendar'));
 const AdminGimnasios = lazyWithRetry(() => import('./pages/AdminGimnasios'));
 const Solicitudes = lazyWithRetry(() => import('./pages/Solicitudes'));
 const Unavailability = lazyWithRetry(() => import('./pages/Unavailability'));
+const Grupos = lazyWithRetry(() => import('./pages/Grupos'));
 
 // Otras
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
@@ -174,6 +175,10 @@ export function AppRouter() {
                 </RequireRole>
               </RequireAuth>
             }
+          />
+          <Route
+            path="/grupos"
+            element={<RequireAuth><Grupos /></RequireAuth>}
           />
 
           {/* Solo Admin */}

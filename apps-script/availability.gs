@@ -155,15 +155,31 @@ function availabilityDelete(payload, ctx) {
 
 function availabilityList(payload, ctx) {
   const isAdmin = ctx.role === 'admin' || ctx.role === 'super_admin';
+  const isTrainer = ctx.role === 'trainer';
+  const isClient = ctx.role === 'client';
 
   // Filtros opcionales
   const filterEntityId = payload && payload.entityId ? String(payload.entityId) : null;
 
+  // Si es cliente, calcular su entrenador asignado para mostrar la availability
+  let clientTrainerId = null;
+  if (isClient) {
+    const me = dbFindById('usuarios', ctx.userId);
+    clientTrainerId = me ? me.entrenador_asignado_id : null;
+  }
+
   return dbListAll('unavailability', function (u) {
     if (u.estado !== 'active') return false;
     if (!isAdmin) {
-      // Trainer ve solo sus propias franjas + globales
-      if (u.entity_type === 'trainer' && u.entity_id !== ctx.userId) return false;
+      if (isTrainer) {
+        // Trainer ve solo sus propias franjas + globales
+        if (u.entity_type === 'trainer' && u.entity_id !== ctx.userId) return false;
+      } else if (isClient) {
+        // Cliente ve solo las de su entrenador asignado + globales
+        if (u.entity_type === 'trainer' && u.entity_id !== clientTrainerId) return false;
+      } else {
+        return false;
+      }
     }
     if (filterEntityId) {
       if (u.entity_type === 'trainer' && u.entity_id !== filterEntityId) return false;
@@ -182,9 +198,25 @@ function availabilityExpanded(payload, ctx) {
   const filterEntityId = payload.entityId ? String(payload.entityId) : null;
 
   const rules = availabilityList({ entityId: filterEntityId }, ctx);
+
+  // Cache de nombres de trainers (admin necesita verlo en la franja)
+  const trainerNameCache = {};
+  function lookupTrainerName(id) {
+    if (!id) return '';
+    if (id in trainerNameCache) return trainerNameCache[id];
+    const u = dbFindById('usuarios', id);
+    trainerNameCache[id] = u
+      ? (String(u.nombres || '') + ' ' + String(u.apellidos || '')).trim()
+      : '';
+    return trainerNameCache[id];
+  }
+
   const events = [];
   for (let i = 0; i < rules.length; i++) {
     const occs = availability_expand_(rules[i], fromUtc, toUtc);
+    const trainerName = rules[i].entity_type === 'trainer'
+      ? lookupTrainerName(rules[i].entity_id)
+      : '';
     for (let j = 0; j < occs.length; j++) {
       events.push({
         ruleId: rules[i].id,
@@ -192,6 +224,7 @@ function availabilityExpanded(payload, ctx) {
         descripcion: rules[i].descripcion,
         entityType: rules[i].entity_type,
         entityId: rules[i].entity_id,
+        trainerName: trainerName,
         recurrence: rules[i].recurrence,
         start: occs[j].start,
         end: occs[j].end,

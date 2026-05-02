@@ -36,6 +36,7 @@ const ORDER = [
   'gimnasios.gs',
   'solicitudes.gs',
   'availability.gs',
+  'grupos.gs',
   'backup.gs',
   'Code.gs',
   'bootstrap.gs',

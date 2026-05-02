@@ -130,6 +130,20 @@
   filter: brightness(1.15);
 }
 
+/* Background events (no-disponibilidad) — diagonal stripes para diferenciar */
+.alfallo-calendar .fc-bg-event {
+  opacity: 1 !important;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 92, 92, 0.18),
+    rgba(255, 92, 92, 0.18) 6px,
+    rgba(255, 92, 92, 0.32) 6px,
+    rgba(255, 92, 92, 0.32) 12px
+  );
+  cursor: not-allowed !important;
+  position: relative;
+}
+
 /* Mobile responsiveness */
 @media (max-width: 640px) {
   .alfallo-calendar .fc-toolbar.fc-header-toolbar {

@@ -532,12 +532,23 @@ function bookingsListMine(payload, ctx) {
     return planCache[id];
   }
 
+  // Iter 13: enriquecer cada booking con los grupos del cliente para
+  // colorear en calendario.
+  const userGroupsCache = {};
+  function lookupUserGroups(userId) {
+    if (!userId) return [];
+    if (userId in userGroupsCache) return userGroupsCache[userId];
+    userGroupsCache[userId] = grupos_getUserGroups_(userId);
+    return userGroupsCache[userId];
+  }
+
   return bookings.map(function (b) {
     return Object.assign({}, b, {
       entrenador: lookupUser(b.entrenador_id),
       cliente: lookupUser(b.user_id),
       sede: lookupSede(b.sede_id),
       plan: lookupPlan(b.plan_usuario_id),
+      userGroups: lookupUserGroups(b.user_id),
     });
   });
 }
