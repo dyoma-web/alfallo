@@ -25,6 +25,7 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
 
   const justActivated = searchParams.get('activated') === '1';
+  const justReset = searchParams.get('reset') === '1';
 
   const {
     register,
@@ -87,6 +88,13 @@ export default function Login() {
         </div>
       )}
 
+      {justReset && (
+        <div className="mb-5 p-3 rounded-xl bg-ok/10 border border-ok/25 text-ok-fg text-[13px] flex items-start gap-2">
+          <Icon name="check" size={16} strokeWidth={2.5} className="mt-0.5 flex-none" />
+          <span>Contraseña restablecida. Inicia sesión con la nueva.</span>
+        </div>
+      )}
+
       {globalError && (
         <div
           role="alert"
@@ -118,9 +126,12 @@ export default function Login() {
         />
 
         <div className="text-right">
-          <span className="text-[12px] text-fg-3" title="Disponible en próxima iteración">
-            ¿Olvidaste tu contraseña? Próximamente.
-          </span>
+          <Link
+            to="/forgot-password"
+            className="text-[12px] text-fg-2 hover:text-fg underline-offset-2 hover:underline"
+          >
+            ¿Olvidaste tu contraseña?
+          </Link>
         </div>
 
         <Btn type="submit" full size="lg" disabled={submitting}>

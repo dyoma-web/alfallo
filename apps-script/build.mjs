@@ -25,6 +25,7 @@ const ORDER = [
   'cache.gs',
   'validate.gs',
   'audit.gs',
+  'email.gs',
   'auth.gs',
   'Code.gs',
   'bootstrap.gs',

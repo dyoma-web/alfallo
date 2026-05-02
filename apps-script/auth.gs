@@ -226,6 +226,112 @@ function authActivateAccount(payload, reqMeta) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Solicitar reset de password (envía email con link)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Siempre devuelve { ok: true }, exista o no el email — para no leak qué
+ * correos están registrados (defensa contra enumeración de cuentas).
+ */
+function authRequestPasswordReset(payload, reqMeta) {
+  const userId = dbIndexLookup('email', payload.email);
+
+  if (!userId) {
+    auditLog({
+      accion: 'request_password_reset',
+      entidad: 'usuario',
+      resultado: 'denied',
+      error_msg: 'email_not_found:' + payload.email,
+    }, reqMeta);
+    Utilities.sleep(400 + Math.floor(Math.random() * 300));
+    return { ok: true };
+  }
+
+  const user = dbFindById('usuarios', userId);
+  if (!user) return { ok: true };
+
+  // Solo emitir el reset si la cuenta está activa
+  if (user.estado !== 'active') {
+    auditDenied(userId, 'request_password_reset', 'account_not_active:' + user.estado, reqMeta);
+    Utilities.sleep(400);
+    return { ok: true };
+  }
+
+  const ttlHours = (function () {
+    const cfg = dbFindById('config', 'app.reset_token_ttl_hours');
+    return cfg ? Number(cfg.value) : 1;
+  })();
+
+  const token = cryptoRandomHex(32);
+  const now = dbNowUtc();
+  dbInsert('tokens_temporales', {
+    token: token,
+    tipo: 'password_reset',
+    user_id: user.id,
+    created_at: now,
+    expires_at: dbAddHours(now, ttlHours),
+    used_at: '',
+  });
+
+  emailSendPasswordReset(user, token);
+
+  auditOk(user.id, 'request_password_reset', 'usuario', user.id, '', '', reqMeta);
+  return { ok: true };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Reset de password (consume el token y revoca sesiones activas)
+// ──────────────────────────────────────────────────────────────────────────
+
+function authResetPassword(payload, reqMeta) {
+  const tokenRow = dbFindById('tokens_temporales', payload.token);
+  if (!tokenRow) throw AuthError('INVALID_TOKEN', 'Enlace inválido');
+  if (tokenRow.tipo !== 'password_reset') {
+    throw AuthError('INVALID_TOKEN', 'Token no es de reset');
+  }
+  if (tokenRow.used_at) throw AuthError('TOKEN_USED', 'Este enlace ya fue usado');
+  if (new Date() > new Date(tokenRow.expires_at)) {
+    throw AuthError('TOKEN_EXPIRED', 'El enlace expiró. Solicita uno nuevo.');
+  }
+
+  const user = dbFindById('usuarios', tokenRow.user_id);
+  if (!user) throw AuthError('INVALID_TOKEN', 'Usuario no encontrado');
+
+  const { salt, hash, algoritmo } = cryptoHashPassword(payload.password);
+  const nowIso = dbNowUtc();
+  const existingPwd = dbFindById('usuarios_pwd', user.id);
+  if (existingPwd) {
+    dbUpdateById('usuarios_pwd', user.id, {
+      salt: salt, hash: hash, algoritmo: algoritmo,
+      updated_at: nowIso, forzar_cambio: false,
+    });
+  } else {
+    dbInsert('usuarios_pwd', {
+      user_id: user.id,
+      salt: salt, hash: hash, algoritmo: algoritmo,
+      updated_at: nowIso, forzar_cambio: false,
+    });
+  }
+
+  // Marcar token como usado
+  dbUpdateById('tokens_temporales', payload.token, { used_at: nowIso });
+
+  // Revocar TODAS las sesiones activas — fuerza relogin con la nueva password
+  const activeSessions = dbListAll('sesiones', function (s) {
+    return s.user_id === user.id && s.revoked !== true && s.revoked !== 'TRUE';
+  });
+  for (let i = 0; i < activeSessions.length; i++) {
+    dbUpdateById('sesiones', activeSessions[i].token, {
+      revoked: true,
+      last_seen_at: nowIso,
+    });
+  }
+
+  auditOk(user.id, 'reset_password', 'usuario', user.id, '', '', reqMeta);
+  return { ok: true };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Helpers internos
 // ──────────────────────────────────────────────────────────────────────────
 

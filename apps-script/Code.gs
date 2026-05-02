@@ -99,12 +99,11 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'activateAccount':
       return authActivateAccount(payload, reqMeta);
 
-    // ── Auth (Iter 4) — stubs ────────────────────────────────────────────
     case 'requestPasswordReset':
-      throw _err('NOT_IMPLEMENTED', 'requestPasswordReset llega en Iteración 4');
+      return authRequestPasswordReset(payload, reqMeta);
 
     case 'resetPassword':
-      throw _err('NOT_IMPLEMENTED', 'resetPassword llega en Iteración 4');
+      return authResetPassword(payload, reqMeta);
 
     // ── Default ──────────────────────────────────────────────────────────
     default:

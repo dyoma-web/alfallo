@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-02T03:09:45.795Z                              ║
+ * ║  Built:   2026-05-02T03:31:21.578Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -994,6 +994,168 @@ function auditDenied(userId, accion, reason, reqMeta) {
 
 
 // ═══════════════════════════════════════════════════════════════════════
+// email.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * email.gs — Plantillas y envío de emails transaccionales.
+ *
+ * Usa MailApp.sendEmail (cuota: 100 emails/día en cuenta gratuita,
+ * 1500/día en Workspace). El remitente es la cuenta dueña del script.
+ *
+ * Si el envío falla (ej. cuota agotada), se loguea pero NO se relanza —
+ * los flujos de auth no deben caerse por un email.
+ */
+
+// ──────────────────────────────────────────────────────────────────────────
+// API pública
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Envía link de reset de password.
+ * @param {Object} user — fila de la hoja `usuarios`
+ * @param {string} token — del registro en tokens_temporales
+ */
+function emailSendPasswordReset(user, token) {
+  if (!email_isEnabled_()) return;
+
+  const link = 'https://dyoma-web.github.io/alfallo/#/reset-password?token=' + encodeURIComponent(token);
+  const greetingName = user.nombres ? user.nombres : 'tú';
+
+  email_send_({
+    to: user.email,
+    subject: 'Restablece tu contraseña — Al Fallo',
+    plainBody:
+      'Hola ' + greetingName + ',\n\n' +
+      'Recibimos una solicitud para restablecer la contraseña de tu cuenta en Al Fallo.\n\n' +
+      'Si fuiste tú, abre este enlace en la próxima hora:\n' +
+      link + '\n\n' +
+      'Si no fuiste tú, ignora este correo. Tu cuenta sigue protegida.\n\n' +
+      '— El equipo de administración\n' +
+      '\n— — —\n' +
+      'Al Fallo · Operado bajo Ley 1581/2012\n',
+    htmlBody: email_renderHtml_({
+      title: 'Restablece tu contraseña',
+      greeting: 'Hola ' + greetingName + ',',
+      paragraphs: [
+        'Recibimos una solicitud para restablecer la contraseña de tu cuenta en Al Fallo.',
+        'Si fuiste tú, abre el enlace en la próxima hora.',
+      ],
+      cta: { label: 'Restablecer contraseña', url: link },
+      footnote: 'Este enlace vence en 1 hora. Si no solicitaste el cambio, ignora este correo.',
+    }),
+  });
+}
+
+/**
+ * Envía link de activación de cuenta.
+ * Útil cuando un Admin crea un nuevo usuario en Iter 7.
+ */
+function emailSendActivationLink(user, token) {
+  if (!email_isEnabled_()) return;
+
+  const link = 'https://dyoma-web.github.io/alfallo/#/activate?token=' + encodeURIComponent(token);
+  const greetingName = user.nombres ? user.nombres : 'tú';
+
+  email_send_({
+    to: user.email,
+    subject: 'Activa tu cuenta — Al Fallo',
+    plainBody:
+      'Hola ' + greetingName + ',\n\n' +
+      'Tu cuenta en Al Fallo fue creada por el equipo de administración.\n\n' +
+      'Para activarla y establecer tu contraseña, abre este enlace en las próximas 24 horas:\n' +
+      link + '\n\n' +
+      'Si no esperabas este correo, escríbenos y lo verificamos.\n\n' +
+      '— El equipo de administración\n' +
+      '\n— — —\n' +
+      'Al Fallo · Operado bajo Ley 1581/2012\n',
+    htmlBody: email_renderHtml_({
+      title: 'Activa tu cuenta',
+      greeting: 'Hola ' + greetingName + ',',
+      paragraphs: [
+        'Tu cuenta en Al Fallo fue creada por el equipo de administración.',
+        'Activa tu cuenta y establece tu contraseña con el enlace de abajo.',
+      ],
+      cta: { label: 'Activar cuenta', url: link },
+      footnote: 'Este enlace vence en 24 horas.',
+    }),
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Helpers internos
+// ──────────────────────────────────────────────────────────────────────────
+
+function email_isEnabled_() {
+  const cfg = dbFindById('config', 'notif.email_enabled');
+  if (!cfg) return true;  // default ON
+  return String(cfg.value).toLowerCase() !== 'false';
+}
+
+function email_send_(opts) {
+  try {
+    MailApp.sendEmail({
+      to: opts.to,
+      subject: opts.subject,
+      body: opts.plainBody,
+      htmlBody: opts.htmlBody,
+      name: 'Al Fallo',
+      noReply: true,
+    });
+  } catch (e) {
+    Logger.log('email_send_ FAILED to=' + opts.to + ' subject="' + opts.subject + '" — ' + e.message);
+    // No re-throw — el flujo de auth no debe fallar por un email.
+  }
+}
+
+/**
+ * Renderiza HTML con la marca dark de Al Fallo (lime sobre fondo casi-negro).
+ * Inline styles porque la mayoría de clientes de email NO soportan CSS externo.
+ */
+function email_renderHtml_(opts) {
+  const paragraphsHtml = opts.paragraphs
+    .map(function (p) {
+      return '<p style="color:#A8B0A4;line-height:1.6;margin:0 0 12px;font-size:15px">' + p + '</p>';
+    })
+    .join('');
+
+  return [
+    '<!DOCTYPE html>',
+    '<html lang="es"><head><meta charset="utf-8"><title>' + opts.title + '</title></head>',
+    '<body style="margin:0;padding:0;background:#0F1410;color:#F2F4EF;',
+    '       font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Inter,sans-serif">',
+    '<table role="presentation" style="width:100%;border-collapse:collapse;background:#0F1410">',
+    '  <tr><td align="center" style="padding:32px 16px">',
+    '    <table role="presentation" style="max-width:480px;width:100%;background:#171D17;',
+    '           border-radius:16px;border:1px solid rgba(255,255,255,0.08)">',
+    '      <tr><td style="padding:32px">',
+    '        <div style="font-size:22px;font-weight:700;letter-spacing:-0.04em;margin-bottom:24px;color:#F2F4EF">',
+    '          al<span style="color:#C8FF3D">/</span>fallo',
+    '        </div>',
+    '        <h1 style="font-size:22px;font-weight:600;letter-spacing:-0.02em;color:#F2F4EF;margin:0 0 16px">',
+    '          ' + opts.title,
+    '        </h1>',
+    '        <p style="color:#A8B0A4;line-height:1.6;margin:0 0 12px;font-size:15px">' + opts.greeting + '</p>',
+    '        ' + paragraphsHtml,
+    '        <div style="margin:24px 0;text-align:left">',
+    '          <a href="' + opts.cta.url + '" style="display:inline-block;background:#C8FF3D;color:#0B1208;',
+    '             padding:12px 24px;border-radius:999px;text-decoration:none;font-weight:700;font-size:14px;',
+    '             letter-spacing:-0.01em">' + opts.cta.label + '</a>',
+    '        </div>',
+    '        <p style="color:#6B746A;font-size:13px;line-height:1.6;margin:0">' + opts.footnote + '</p>',
+    '      </td></tr>',
+    '    </table>',
+    '    <p style="color:#6B746A;font-size:11px;margin:20px 0 0;text-align:center;line-height:1.6">',
+    '      Al Fallo · Operado bajo Ley 1581/2012<br>',
+    '      ¿Preguntas? Escribe a <a href="mailto:david.yomayusa@innovahub.org" style="color:#A8B0A4">david.yomayusa@innovahub.org</a>',
+    '    </p>',
+    '  </td></tr>',
+    '</table></body></html>',
+  ].join('\n');
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
 // auth.gs
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1225,6 +1387,112 @@ function authActivateAccount(payload, reqMeta) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Solicitar reset de password (envía email con link)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Siempre devuelve { ok: true }, exista o no el email — para no leak qué
+ * correos están registrados (defensa contra enumeración de cuentas).
+ */
+function authRequestPasswordReset(payload, reqMeta) {
+  const userId = dbIndexLookup('email', payload.email);
+
+  if (!userId) {
+    auditLog({
+      accion: 'request_password_reset',
+      entidad: 'usuario',
+      resultado: 'denied',
+      error_msg: 'email_not_found:' + payload.email,
+    }, reqMeta);
+    Utilities.sleep(400 + Math.floor(Math.random() * 300));
+    return { ok: true };
+  }
+
+  const user = dbFindById('usuarios', userId);
+  if (!user) return { ok: true };
+
+  // Solo emitir el reset si la cuenta está activa
+  if (user.estado !== 'active') {
+    auditDenied(userId, 'request_password_reset', 'account_not_active:' + user.estado, reqMeta);
+    Utilities.sleep(400);
+    return { ok: true };
+  }
+
+  const ttlHours = (function () {
+    const cfg = dbFindById('config', 'app.reset_token_ttl_hours');
+    return cfg ? Number(cfg.value) : 1;
+  })();
+
+  const token = cryptoRandomHex(32);
+  const now = dbNowUtc();
+  dbInsert('tokens_temporales', {
+    token: token,
+    tipo: 'password_reset',
+    user_id: user.id,
+    created_at: now,
+    expires_at: dbAddHours(now, ttlHours),
+    used_at: '',
+  });
+
+  emailSendPasswordReset(user, token);
+
+  auditOk(user.id, 'request_password_reset', 'usuario', user.id, '', '', reqMeta);
+  return { ok: true };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Reset de password (consume el token y revoca sesiones activas)
+// ──────────────────────────────────────────────────────────────────────────
+
+function authResetPassword(payload, reqMeta) {
+  const tokenRow = dbFindById('tokens_temporales', payload.token);
+  if (!tokenRow) throw AuthError('INVALID_TOKEN', 'Enlace inválido');
+  if (tokenRow.tipo !== 'password_reset') {
+    throw AuthError('INVALID_TOKEN', 'Token no es de reset');
+  }
+  if (tokenRow.used_at) throw AuthError('TOKEN_USED', 'Este enlace ya fue usado');
+  if (new Date() > new Date(tokenRow.expires_at)) {
+    throw AuthError('TOKEN_EXPIRED', 'El enlace expiró. Solicita uno nuevo.');
+  }
+
+  const user = dbFindById('usuarios', tokenRow.user_id);
+  if (!user) throw AuthError('INVALID_TOKEN', 'Usuario no encontrado');
+
+  const { salt, hash, algoritmo } = cryptoHashPassword(payload.password);
+  const nowIso = dbNowUtc();
+  const existingPwd = dbFindById('usuarios_pwd', user.id);
+  if (existingPwd) {
+    dbUpdateById('usuarios_pwd', user.id, {
+      salt: salt, hash: hash, algoritmo: algoritmo,
+      updated_at: nowIso, forzar_cambio: false,
+    });
+  } else {
+    dbInsert('usuarios_pwd', {
+      user_id: user.id,
+      salt: salt, hash: hash, algoritmo: algoritmo,
+      updated_at: nowIso, forzar_cambio: false,
+    });
+  }
+
+  // Marcar token como usado
+  dbUpdateById('tokens_temporales', payload.token, { used_at: nowIso });
+
+  // Revocar TODAS las sesiones activas — fuerza relogin con la nueva password
+  const activeSessions = dbListAll('sesiones', function (s) {
+    return s.user_id === user.id && s.revoked !== true && s.revoked !== 'TRUE';
+  });
+  for (let i = 0; i < activeSessions.length; i++) {
+    dbUpdateById('sesiones', activeSessions[i].token, {
+      revoked: true,
+      last_seen_at: nowIso,
+    });
+  }
+
+  auditOk(user.id, 'reset_password', 'usuario', user.id, '', '', reqMeta);
+  return { ok: true };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Helpers internos
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -1359,12 +1627,11 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'activateAccount':
       return authActivateAccount(payload, reqMeta);
 
-    // ── Auth (Iter 4) — stubs ────────────────────────────────────────────
     case 'requestPasswordReset':
-      throw _err('NOT_IMPLEMENTED', 'requestPasswordReset llega en Iteración 4');
+      return authRequestPasswordReset(payload, reqMeta);
 
     case 'resetPassword':
-      throw _err('NOT_IMPLEMENTED', 'resetPassword llega en Iteración 4');
+      return authResetPassword(payload, reqMeta);
 
     // ── Default ──────────────────────────────────────────────────────────
     default:

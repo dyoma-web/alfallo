@@ -7,6 +7,8 @@ import { Logo } from './components/Logo';
 // Lazy-loaded pages — splits the initial bundle by route
 const Login = lazy(() => import('./pages/Login'));
 const ActivateAccount = lazy(() => import('./pages/ActivateAccount'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const Logout = lazy(() => import('./pages/Logout'));
 const DashboardPlaceholder = lazy(() => import('./pages/DashboardPlaceholder'));
 const NotFound = lazy(() => import('./pages/NotFound'));
@@ -37,6 +39,8 @@ export function AppRouter() {
           {/* Públicas */}
           <Route path="/login" element={<Login />} />
           <Route path="/activate" element={<ActivateAccount />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/logout" element={<Logout />} />
           <Route path="/forbidden" element={<Forbidden />} />
           <Route path="/politica-datos" element={<PoliticaDatos />} />
