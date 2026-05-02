@@ -209,6 +209,9 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'adminListTrainers':
       return adminListTrainers(payload, ctx);
 
+    case 'adminListAuditLog':
+      return adminListAuditLog(payload, ctx);
+
     // ── Options (Iter 5) ─────────────────────────────────────────────────
     case 'getBookingOptions':
       return optionsGetBookingOptions(payload, ctx);

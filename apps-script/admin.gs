@@ -713,3 +713,60 @@ function adminListTrainers(_payload, ctx) {
     };
   });
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Audit log viewer — solo admin
+// ──────────────────────────────────────────────────────────────────────────
+
+function adminListAuditLog(payload, ctx) {
+  admin_requireAdmin_(ctx);
+  const limit = payload && payload.limit
+    ? Math.min(500, Math.max(1, Number(payload.limit)))
+    : 100;
+
+  const userIdFilter = payload && payload.userId ? String(payload.userId) : null;
+  const entidadFilter = payload && payload.entidad ? String(payload.entidad) : null;
+  const resultadoFilter = payload && payload.resultado ? String(payload.resultado) : null;
+
+  const all = dbListAll('auditoria', function (a) {
+    if (userIdFilter && a.user_id !== userIdFilter) return false;
+    if (entidadFilter && a.entidad !== entidadFilter) return false;
+    if (resultadoFilter && a.resultado !== resultadoFilter) return false;
+    return true;
+  });
+
+  all.sort(function (a, b) {
+    return String(b.created_at_utc).localeCompare(String(a.created_at_utc));
+  });
+
+  const userCache = {};
+  function lookupUserName(id) {
+    if (!id) return '';
+    if (id in userCache) return userCache[id];
+    const u = dbFindById('usuarios', id);
+    userCache[id] = u
+      ? (String(u.nombres || '') + ' ' + String(u.apellidos || '')).trim() || u.email
+      : '';
+    return userCache[id];
+  }
+
+  return {
+    items: all.slice(0, limit).map(function (r) {
+      return {
+        id: r.id,
+        createdAt: r.created_at_utc,
+        userId: r.user_id,
+        userName: lookupUserName(r.user_id),
+        accion: r.accion,
+        entidad: r.entidad,
+        entidadId: r.entidad_id,
+        resultado: r.resultado,
+        errorMsg: r.error_msg,
+        ip: r.ip,
+        userAgent: r.user_agent,
+      };
+    }),
+    totalReturned: Math.min(all.length, limit),
+    totalMatch: all.length,
+  };
+}
