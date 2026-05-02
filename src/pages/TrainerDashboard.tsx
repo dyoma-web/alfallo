@@ -1,9 +1,11 @@
-import { Link } from 'react-router-dom';
+import { useMemo } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layouts/AppShell';
 import { Card } from '../components/Card';
 import { Btn } from '../components/Btn';
 import { Icon } from '../components/Icon';
 import { StatusBadge, type StatusKind } from '../components/StatusBadge';
+import { CalendarView, type CalendarBooking } from '../components/calendar/CalendarView';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { useSession } from '../lib/store/session';
 import { formatDate, formatTime, formatRelative, greeting } from '../lib/datetime';
@@ -58,7 +60,11 @@ const STATE_TO_BADGE: Record<string, StatusKind> = {
 
 export default function TrainerDashboard() {
   const user = useSession((s) => s.user);
+  const navigate = useNavigate();
   const { data, error, loading, refetch } = useApiQuery<DashboardData>('getTrainerDashboard');
+  const { data: weekBookings } = useApiQuery<CalendarBooking[]>('listMyBookings');
+
+  const calBookings = useMemo(() => weekBookings ?? [], [weekBookings]);
 
   const confirm = useApiMutation('confirmBooking');
   const reject = useApiMutation('rejectBooking');
@@ -176,6 +182,24 @@ export default function TrainerDashboard() {
               )}
             </Section>
 
+            {/* Calendario semanal embebido */}
+            {calBookings.length > 0 && (
+              <Section
+                title="Tu semana"
+                action={{ to: '/calendario', label: 'Ver pantalla completa' }}
+              >
+                <Card padding={14}>
+                  <CalendarView
+                    bookings={calBookings}
+                    defaultView="timeGridWeek"
+                    showLabel="cliente"
+                    height={500}
+                    onBookingClick={() => navigate('/calendario')}
+                  />
+                </Card>
+              </Section>
+            )}
+
             {/* Planes por vencer */}
             {data.planesPorVencer.length > 0 && (
               <Section title="Planes por vencer">
@@ -234,10 +258,12 @@ function KpiTile({
 function Section({
   title,
   count,
+  action,
   children,
 }: {
   title: string;
   count?: number;
+  action?: { to: string; label: string };
   children: React.ReactNode;
 }) {
   return (
@@ -249,6 +275,14 @@ function Section({
             <span className="ml-2 text-warn">({count})</span>
           )}
         </h2>
+        {action && (
+          <Link
+            to={action.to}
+            className="text-[12px] text-fg-2 hover:text-fg underline-offset-2 hover:underline"
+          >
+            {action.label}
+          </Link>
+        )}
       </div>
       {children}
     </section>

@@ -1,7 +1,9 @@
-import { Link } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layouts/AppShell';
 import { Card } from '../components/Card';
 import { Icon, type IconName } from '../components/Icon';
+import { CalendarView, type CalendarBooking } from '../components/calendar/CalendarView';
 import { useApiQuery } from '../lib/useApiQuery';
 import { useSession } from '../lib/store/session';
 import { greeting } from '../lib/datetime';
@@ -24,9 +26,44 @@ interface AdminDashboardData {
   };
 }
 
+interface BookingForCal extends CalendarBooking {
+  user_id: string;
+  entrenador_id: string;
+  sede_id: string;
+}
+
 export default function AdminDashboard() {
   const user = useSession((s) => s.user);
+  const navigate = useNavigate();
   const { data, error, loading } = useApiQuery<AdminDashboardData>('getAdminDashboard');
+
+  const [calFilterTrainer, setCalFilterTrainer] = useState('');
+  const [calFilterSede, setCalFilterSede] = useState('');
+  const [calFilterUser, setCalFilterUser] = useState('');
+
+  const { data: bookings } = useApiQuery<BookingForCal[]>(
+    'listMyBookings',
+    {
+      filterTrainerId: calFilterTrainer || undefined,
+      filterSedeId: calFilterSede || undefined,
+      filterUserId: calFilterUser || undefined,
+    },
+    { deps: [calFilterTrainer, calFilterSede, calFilterUser] }
+  );
+
+  const { data: trainers } = useApiQuery<Array<{ id: string; nombres: string; apellidos: string }>>(
+    'adminListTrainers'
+  );
+  const { data: sedes } = useApiQuery<Array<{ id: string; nombre: string; ciudad?: string }>>(
+    'adminListSedes'
+  );
+  const { data: users } = useApiQuery<Array<{ id: string; nombres: string; apellidos: string }>>(
+    'adminListUsers',
+    { rol: 'client' }
+  );
+
+  const calBookings = useMemo(() => bookings ?? [], [bookings]);
+  const labelMode = calFilterUser ? 'tipo' : calFilterTrainer ? 'cliente' : 'auto';
 
   return (
     <AppShell>
@@ -117,6 +154,62 @@ export default function AdminDashboard() {
                   tone={data.sesionesSemana.noAsistidas > 0 ? 'warn' : undefined}
                 />
               </div>
+            </Section>
+
+            {/* Calendario global */}
+            <Section
+              title="Calendario global"
+              action={{ to: '/calendario', label: 'Ver pantalla completa' }}
+            >
+              <Card padding={14}>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                  <select
+                    value={calFilterTrainer}
+                    onChange={(e) => setCalFilterTrainer(e.target.value)}
+                    className="h-9 px-3 rounded-lg bg-surface-2 border border-line-2 text-fg text-[13px] focus:outline-none focus:border-accent/60"
+                  >
+                    <option value="">Todos los entrenadores</option>
+                    {trainers?.map((t) => (
+                      <option key={t.id} value={t.id}>{t.nombres} {t.apellidos}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={calFilterSede}
+                    onChange={(e) => setCalFilterSede(e.target.value)}
+                    className="h-9 px-3 rounded-lg bg-surface-2 border border-line-2 text-fg text-[13px] focus:outline-none focus:border-accent/60"
+                  >
+                    <option value="">Todas las sedes</option>
+                    {sedes?.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nombre}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={calFilterUser}
+                    onChange={(e) => setCalFilterUser(e.target.value)}
+                    className="h-9 px-3 rounded-lg bg-surface-2 border border-line-2 text-fg text-[13px] focus:outline-none focus:border-accent/60"
+                  >
+                    <option value="">Todos los clientes</option>
+                    {users?.map((u) => (
+                      <option key={u.id} value={u.id}>{u.nombres} {u.apellidos}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {calBookings.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Icon name="cal" size={28} color="#6B746A" className="mx-auto mb-2" />
+                    <p className="text-fg-2 text-sm">Sin agendamientos en el rango.</p>
+                  </div>
+                ) : (
+                  <CalendarView
+                    bookings={calBookings}
+                    defaultView="timeGridWeek"
+                    showLabel={labelMode}
+                    height={520}
+                    onBookingClick={() => navigate('/calendario')}
+                  />
+                )}
+              </Card>
             </Section>
 
             {/* Acciones rápidas */}
