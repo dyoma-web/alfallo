@@ -53,7 +53,7 @@ function dashboardGetUser(_payload, ctx) {
     const cat = dbFindById('planes_catalogo', p.plan_catalogo_id);
     const restantes = Math.max(0, Number(p.sesiones_totales) - Number(p.sesiones_consumidas));
     const diasRestantes = Math.ceil(
-      (new Date(p.fecha_vencimiento_utc).getTime() - nowDate.getTime()) / 86_400_000
+      (new Date(p.fecha_vencimiento_utc).getTime() - nowDate.getTime()) / 86400000
     );
     let estadoVisual = 'plan-activo';
     if (diasRestantes < 0) estadoVisual = 'plan-vencido';

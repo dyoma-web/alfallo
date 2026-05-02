@@ -96,7 +96,7 @@ function alertsGeneratePlanWarnings() {
   let created = 0;
   for (let i = 0; i < planes.length; i++) {
     const p = planes[i];
-    const dias = Math.ceil((new Date(p.fecha_vencimiento_utc) - now) / 86_400_000);
+    const dias = Math.ceil((new Date(p.fecha_vencimiento_utc) - now) / 86400000);
 
     if (dias <= 0) {
       // Plan vencido — alerta una sola vez (la primera vez que se detecta)
@@ -145,7 +145,7 @@ function alertsGeneratePlanWarnings() {
  */
 function alertsGenerateSessionReminders() {
   const now = new Date();
-  const in24h = new Date(now.getTime() + 24 * 3_600_000);
+  const in24h = new Date(now.getTime() + 24 * 3600000);
   const sesiones = dbListAll('agendamientos', function (b) {
     if (!b.fecha_inicio_utc) return false;
     if (b.estado !== 'confirmado' && b.estado !== 'pactado') return false;

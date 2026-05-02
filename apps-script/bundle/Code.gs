@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-02T03:56:26.642Z                              ║
+ * ║  Built:   2026-05-02T03:58:15.202Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -1685,7 +1685,7 @@ function alertsGeneratePlanWarnings() {
   let created = 0;
   for (let i = 0; i < planes.length; i++) {
     const p = planes[i];
-    const dias = Math.ceil((new Date(p.fecha_vencimiento_utc) - now) / 86_400_000);
+    const dias = Math.ceil((new Date(p.fecha_vencimiento_utc) - now) / 86400000);
 
     if (dias <= 0) {
       // Plan vencido — alerta una sola vez (la primera vez que se detecta)
@@ -1734,7 +1734,7 @@ function alertsGeneratePlanWarnings() {
  */
 function alertsGenerateSessionReminders() {
   const now = new Date();
-  const in24h = new Date(now.getTime() + 24 * 3_600_000);
+  const in24h = new Date(now.getTime() + 24 * 3600000);
   const sesiones = dbListAll('agendamientos', function (b) {
     if (!b.fecha_inicio_utc) return false;
     if (b.estado !== 'confirmado' && b.estado !== 'pactado') return false;
@@ -1955,7 +1955,7 @@ function dashboardGetUser(_payload, ctx) {
     const cat = dbFindById('planes_catalogo', p.plan_catalogo_id);
     const restantes = Math.max(0, Number(p.sesiones_totales) - Number(p.sesiones_consumidas));
     const diasRestantes = Math.ceil(
-      (new Date(p.fecha_vencimiento_utc).getTime() - nowDate.getTime()) / 86_400_000
+      (new Date(p.fecha_vencimiento_utc).getTime() - nowDate.getTime()) / 86400000
     );
     let estadoVisual = 'plan-activo';
     if (diasRestantes < 0) estadoVisual = 'plan-vencido';
@@ -2169,7 +2169,7 @@ function bookingsSubmit(payload, ctx) {
   const notas = payload.notas ? vString(payload.notas, 'notas', { max: 500 }) : '';
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10_000)) {
+  if (!lock.tryLock(10000)) {
     throw _bookingErr_('SLOT_BUSY', 'El sistema está ocupado. Intenta en unos segundos.');
   }
 
@@ -2286,7 +2286,7 @@ function bookingsCancel(payload, ctx) {
   // Calcular si está dentro o fuera del margen de la política aplicable
   const policy = bookings_getApplicablePolicy_(booking);
   const ventanaHoras = policy ? Number(policy.ventana_horas) : 12;
-  const horasParaInicio = (new Date(booking.fecha_inicio_utc).getTime() - Date.now()) / 3_600_000;
+  const horasParaInicio = (new Date(booking.fecha_inicio_utc).getTime() - Date.now()) / 3600000;
   const dentroMargen = horasParaInicio >= ventanaHoras;
 
   const now = dbNowUtc();
@@ -2405,9 +2405,9 @@ function bookings_expireOldDrafts_(userId, now) {
 
 function bookings_overlaps_(aStart, aDur, bStart, bDur) {
   const aS = new Date(aStart).getTime();
-  const aE = aS + (Number(aDur) || 60) * 60_000;
+  const aE = aS + (Number(aDur) || 60) * 60000;
   const bS = new Date(bStart).getTime();
-  const bE = bS + (Number(bDur) || 60) * 60_000;
+  const bE = bS + (Number(bDur) || 60) * 60000;
   return aS < bE && bS < aE;
 }
 

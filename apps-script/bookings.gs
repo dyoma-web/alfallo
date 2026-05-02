@@ -70,7 +70,7 @@ function bookingsSubmit(payload, ctx) {
   const notas = payload.notas ? vString(payload.notas, 'notas', { max: 500 }) : '';
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10_000)) {
+  if (!lock.tryLock(10000)) {
     throw _bookingErr_('SLOT_BUSY', 'El sistema está ocupado. Intenta en unos segundos.');
   }
 
@@ -187,7 +187,7 @@ function bookingsCancel(payload, ctx) {
   // Calcular si está dentro o fuera del margen de la política aplicable
   const policy = bookings_getApplicablePolicy_(booking);
   const ventanaHoras = policy ? Number(policy.ventana_horas) : 12;
-  const horasParaInicio = (new Date(booking.fecha_inicio_utc).getTime() - Date.now()) / 3_600_000;
+  const horasParaInicio = (new Date(booking.fecha_inicio_utc).getTime() - Date.now()) / 3600000;
   const dentroMargen = horasParaInicio >= ventanaHoras;
 
   const now = dbNowUtc();
@@ -306,9 +306,9 @@ function bookings_expireOldDrafts_(userId, now) {
 
 function bookings_overlaps_(aStart, aDur, bStart, bDur) {
   const aS = new Date(aStart).getTime();
-  const aE = aS + (Number(aDur) || 60) * 60_000;
+  const aE = aS + (Number(aDur) || 60) * 60000;
   const bS = new Date(bStart).getTime();
-  const bE = bS + (Number(bDur) || 60) * 60_000;
+  const bE = bS + (Number(bDur) || 60) * 60000;
   return aS < bE && bS < aE;
 }
 
