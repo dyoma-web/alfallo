@@ -33,6 +33,7 @@ const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
 const AdminUsers = lazyWithRetry(() => import('./pages/AdminUsers'));
 const AdminSedes = lazyWithRetry(() => import('./pages/AdminSedes'));
 const AdminPlanes = lazyWithRetry(() => import('./pages/AdminPlanes'));
+const AdminCalendar = lazyWithRetry(() => import('./pages/AdminCalendar'));
 
 // Otras
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
@@ -66,9 +67,8 @@ function DashboardSwitch() {
 /** Calendario switch — cliente ve sus bookings, trainer/admin ve los suyos con acciones. */
 function CalendarSwitch() {
   const role = useSession((s) => s.role);
-  if (role === 'trainer' || role === 'admin' || role === 'super_admin') {
-    return <TrainerCalendar />;
-  }
+  if (role === 'admin' || role === 'super_admin') return <AdminCalendar />;
+  if (role === 'trainer') return <TrainerCalendar />;
   return <UserCalendar />;
 }
 

@@ -1,0 +1,153 @@
+/* FullCalendar — override dark theme con paleta Al Fallo */
+
+.alfallo-calendar {
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: rgba(255, 255, 255, 0.02);
+  --fc-neutral-text-color: #A8B0A4;
+  --fc-border-color: rgba(255, 255, 255, 0.08);
+  --fc-button-bg-color: #1F2620;
+  --fc-button-border-color: rgba(255, 255, 255, 0.14);
+  --fc-button-text-color: #F2F4EF;
+  --fc-button-hover-bg-color: #171D17;
+  --fc-button-hover-border-color: rgba(255, 255, 255, 0.18);
+  --fc-button-active-bg-color: rgba(200, 255, 61, 0.10);
+  --fc-button-active-border-color: rgba(200, 255, 61, 0.4);
+  --fc-event-bg-color: rgba(200, 255, 61, 0.15);
+  --fc-event-border-color: rgba(200, 255, 61, 0.4);
+  --fc-event-text-color: #D8FF6E;
+  --fc-event-selected-overlay-color: rgba(255, 255, 255, 0.04);
+  --fc-today-bg-color: rgba(200, 255, 61, 0.04);
+  --fc-now-indicator-color: #C8FF3D;
+  --fc-list-event-hover-bg-color: rgba(255, 255, 255, 0.04);
+
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #F2F4EF;
+}
+
+.alfallo-calendar .fc-toolbar.fc-header-toolbar {
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.alfallo-calendar .fc-toolbar-title {
+  font-family: 'Geist', 'Inter', system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #F2F4EF;
+}
+
+.alfallo-calendar .fc-button {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  padding: 6px 12px;
+  border-radius: 8px;
+  text-transform: capitalize;
+  box-shadow: none;
+}
+
+.alfallo-calendar .fc-button:focus {
+  outline: 2px solid rgba(200, 255, 61, 0.4);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.alfallo-calendar .fc-button-primary:not(:disabled).fc-button-active,
+.alfallo-calendar .fc-button-primary:not(:disabled):active {
+  color: #D8FF6E;
+}
+
+.alfallo-calendar .fc-col-header-cell-cushion,
+.alfallo-calendar .fc-list-day-cushion {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6B746A;
+  padding: 8px 4px;
+}
+
+.alfallo-calendar .fc-list-day-cushion {
+  background-color: rgba(255, 255, 255, 0.02) !important;
+}
+
+.alfallo-calendar .fc-daygrid-day-number,
+.alfallo-calendar .fc-list-event-time,
+.alfallo-calendar .fc-list-event-title {
+  color: #F2F4EF;
+  font-size: 13px;
+}
+
+.alfallo-calendar .fc-daygrid-day-frame {
+  min-height: 40px;
+}
+
+.alfallo-calendar .fc-day-today .fc-daygrid-day-number {
+  color: #C8FF3D;
+  font-weight: 600;
+}
+
+.alfallo-calendar .fc-event {
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 1px 4px;
+  border-width: 1px;
+}
+
+.alfallo-calendar .fc-timegrid-slot,
+.alfallo-calendar .fc-timegrid-slot-label-cushion {
+  font-size: 11px;
+  color: #6B746A;
+}
+
+.alfallo-calendar .fc-timegrid-axis-cushion {
+  color: #6B746A;
+  font-size: 10px;
+}
+
+.alfallo-calendar .fc-timegrid-now-indicator-line {
+  border-color: #C8FF3D;
+  border-width: 2px;
+}
+
+.alfallo-calendar .fc-timegrid-now-indicator-arrow {
+  border-color: #C8FF3D;
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.alfallo-calendar .fc-event-time,
+.alfallo-calendar .fc-event-title {
+  font-weight: 500;
+}
+
+.alfallo-calendar .fc-event:hover {
+  cursor: pointer;
+  filter: brightness(1.15);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 640px) {
+  .alfallo-calendar .fc-toolbar.fc-header-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .alfallo-calendar .fc-toolbar-chunk {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .alfallo-calendar .fc-toolbar-title {
+    font-size: 16px;
+    text-align: center;
+  }
+  .alfallo-calendar .fc-button {
+    padding: 5px 9px;
+    font-size: 12px;
+  }
+}

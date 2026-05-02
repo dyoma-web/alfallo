@@ -29,8 +29,8 @@ const NAV_TRAINER: NavItem[] = [
 const NAV_ADMIN: NavItem[] = [
   { to: '/dashboard', icon: 'home', label: 'Inicio' },
   { to: '/usuarios', icon: 'group', label: 'Usuarios' },
-  { to: '/sedes', icon: 'building', label: 'Sedes' },
-  { to: '/planes', icon: 'shield', label: 'Planes' },
+  { to: '/calendario', icon: 'cal', label: 'Calendario' },
+  { to: '/alertas', icon: 'bell', label: 'Alertas' },
   { to: '/perfil', icon: 'user', label: 'Más' },
 ];
 

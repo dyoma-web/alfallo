@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppShell } from '../components/layouts/AppShell';
 import { Card } from '../components/Card';
@@ -7,6 +7,7 @@ import { Icon } from '../components/Icon';
 import { StatusBadge, type StatusKind } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
 import { RegisterAttendanceModal } from '../components/RegisterAttendanceModal';
+import { CalendarView, type CalendarBooking } from '../components/calendar/CalendarView';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import {
   formatDate,
@@ -17,20 +18,13 @@ import {
   daysFromNow,
 } from '../lib/datetime';
 
-interface Booking {
-  id: string;
+interface Booking extends CalendarBooking {
   user_id: string;
   entrenador_id: string;
-  fecha_inicio_utc: string;
-  duracion_min: number | string;
-  tipo: string;
-  estado: string;
   notas_usuario?: string;
   notas_entrenador?: string;
   motivo_cancelacion?: string;
   created_at: string;
-  entrenador: { id: string; nombres: string; apellidos: string; nick?: string } | null;
-  sede: { id: string; nombre: string; ciudad: string } | null;
 }
 
 const STATE_TO_BADGE: Record<string, StatusKind> = {
@@ -47,37 +41,42 @@ const STATE_TO_BADGE: Record<string, StatusKind> = {
 
 const FINAL_STATES = ['cancelado', 'completado', 'no-asistido', 'rechazado', 'expirado'];
 
-interface BookingWithClient extends Booking {
-  cliente: { id: string; nombres: string; apellidos: string; nick?: string } | null;
-}
+type ViewMode = 'list' | 'calendar';
+type DayFilter = 'all' | 'weekdays' | 'weekend';
 
 export default function TrainerCalendar() {
+  const [viewMode, setViewMode] = useState<ViewMode>(() =>
+    typeof window !== 'undefined' && window.innerWidth >= 768 ? 'calendar' : 'list'
+  );
   const [filter, setFilter] = useState<'upcoming' | 'past' | 'all'>('upcoming');
+  const [dayFilter, setDayFilter] = useState<DayFilter>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [registeringAttendance, setRegisteringAttendance] = useState<string | null>(null);
 
-  // Trainer recibe los bookings donde es entrenador (server filtra por user logueado solo cliente)
-  // Aquí usamos getTrainerDashboard para hoy + listMyUsers en realidad...
-  // Mejor crear un endpoint específico — por ahora reuso listMyBookings que filtra por user_id.
-  // Pero el trainer no tiene user_id en bookings. Necesitamos un endpoint distinto.
-  // Workaround MVP: listar todos los users del trainer y luego sus bookings.
-  // Por simplicidad, usamos un endpoint similar adaptado: el server lista por entrenador_id si rol=trainer.
-  const { data, error, loading, refetch } = useApiQuery<BookingWithClient[]>(
-    'listMyBookings',
-    {}
-  );
+  const { data, error, loading, refetch } = useApiQuery<Booking[]>('listMyBookings', {});
+
+  useEffect(() => {
+    const stored = localStorage.getItem('alfallo.trainer_calendar_view');
+    if (stored === 'list' || stored === 'calendar') setViewMode(stored);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem('alfallo.trainer_calendar_view', viewMode);
+  }, [viewMode]);
+
+  const allActive = useMemo(() => {
+    if (!data) return [];
+    return data.filter((b) => !!b.fecha_inicio_utc);
+  }, [data]);
 
   const filtered = useMemo(() => {
-    if (!data) return [];
     const now = Date.now();
-    return data.filter((b) => {
-      if (!b.fecha_inicio_utc) return false;
+    return allActive.filter((b) => {
       const t = new Date(b.fecha_inicio_utc).getTime();
-      if (filter === 'upcoming') return t >= now && !FINAL_STATES.includes(String(b.estado));
-      if (filter === 'past') return t < now || FINAL_STATES.includes(String(b.estado));
+      if (filter === 'upcoming' && (t < now || FINAL_STATES.includes(String(b.estado)))) return false;
+      if (filter === 'past' && t >= now && !FINAL_STATES.includes(String(b.estado))) return false;
       return true;
     });
-  }, [data, filter]);
+  }, [allActive, filter]);
 
   const grouped = useMemo(() => groupByPeriod(filtered, filter), [filtered, filter]);
   const selected = useMemo(
@@ -85,68 +84,113 @@ export default function TrainerCalendar() {
     [selectedId, data]
   );
 
+  const hiddenDays =
+    dayFilter === 'weekdays'
+      ? [0, 6]
+      : dayFilter === 'weekend'
+      ? [1, 2, 3, 4, 5]
+      : undefined;
+
   return (
     <AppShell>
-      <div className="px-5 py-6 md:px-10 md:py-10 max-w-3xl mx-auto">
-        <h1 className="font-display text-2xl md:text-3xl font-semibold tracking-[-0.02em] mb-6">
-          Mi calendario
-        </h1>
-
-        <div className="flex gap-2 mb-5 overflow-x-auto">
-          <FilterChip active={filter === 'upcoming'} onClick={() => setFilter('upcoming')}>
-            Próximas
-          </FilterChip>
-          <FilterChip active={filter === 'past'} onClick={() => setFilter('past')}>
-            Anteriores
-          </FilterChip>
-          <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>
-            Todas
-          </FilterChip>
+      <div className="px-5 py-6 md:px-10 md:py-8 max-w-5xl mx-auto">
+        <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+          <h1 className="font-display text-2xl md:text-3xl font-semibold tracking-[-0.02em]">
+            Mi calendario
+          </h1>
+          <ViewToggle mode={viewMode} onChange={setViewMode} />
         </div>
 
-        {loading && (
-          <div className="space-y-3">
-            <div className="bg-surface border border-line rounded-2xl h-20 animate-pulse" />
-            <div className="bg-surface border border-line rounded-2xl h-20 animate-pulse" />
-          </div>
-        )}
-
-        {error && !loading && (
-          <Card padding={20} className="border-err/25 bg-err/5">
-            <p className="text-err-fg">{error.message}</p>
-          </Card>
-        )}
-
-        {data && filtered.length === 0 && !loading && (
-          <Card padding={32}>
-            <div className="text-center">
-              <Icon name="cal" size={28} color="#6B746A" className="mx-auto mb-3" />
-              <p className="text-fg-2">
-                {filter === 'upcoming' ? 'Sin sesiones próximas.' : 'Sin sesiones aquí.'}
-              </p>
+        {viewMode === 'calendar' && (
+          <>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <DayFilterChip active={dayFilter === 'all'} onClick={() => setDayFilter('all')}>
+                Toda la semana
+              </DayFilterChip>
+              <DayFilterChip active={dayFilter === 'weekdays'} onClick={() => setDayFilter('weekdays')}>
+                Solo entre semana
+              </DayFilterChip>
+              <DayFilterChip active={dayFilter === 'weekend'} onClick={() => setDayFilter('weekend')}>
+                Solo fin de semana
+              </DayFilterChip>
             </div>
-          </Card>
+
+            <Card padding={14}>
+              {loading ? (
+                <div className="h-[600px] animate-pulse" />
+              ) : error ? (
+                <p className="text-err-fg p-4">{error.message}</p>
+              ) : allActive.length === 0 ? (
+                <EmptyCalendar />
+              ) : (
+                <CalendarView
+                  bookings={allActive}
+                  defaultView="timeGridWeek"
+                  showLabel="cliente"
+                  height={650}
+                  hiddenDays={hiddenDays}
+                  onBookingClick={(id) => setSelectedId(id)}
+                />
+              )}
+            </Card>
+          </>
         )}
 
-        {data && filtered.length > 0 && (
-          <div className="space-y-6">
-            {grouped.map(([groupName, items]) => (
-              <section key={groupName}>
-                <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2 px-1">
-                  {groupName}
+        {viewMode === 'list' && (
+          <>
+            <div className="flex gap-2 mb-5 overflow-x-auto">
+              <FilterChip active={filter === 'upcoming'} onClick={() => setFilter('upcoming')}>
+                Próximas
+              </FilterChip>
+              <FilterChip active={filter === 'past'} onClick={() => setFilter('past')}>
+                Anteriores
+              </FilterChip>
+              <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>
+                Todas
+              </FilterChip>
+            </div>
+
+            {loading && (
+              <div className="space-y-3">
+                <div className="bg-surface border border-line rounded-2xl h-20 animate-pulse" />
+                <div className="bg-surface border border-line rounded-2xl h-20 animate-pulse" />
+              </div>
+            )}
+
+            {error && !loading && (
+              <Card padding={20} className="border-err/25 bg-err/5">
+                <p className="text-err-fg">{error.message}</p>
+              </Card>
+            )}
+
+            {data && filtered.length === 0 && !loading && (
+              <Card padding={32}>
+                <div className="text-center">
+                  <Icon name="cal" size={28} color="#6B746A" className="mx-auto mb-3" />
+                  <p className="text-fg-2">
+                    {filter === 'upcoming' ? 'Sin sesiones próximas.' : 'Sin sesiones aquí.'}
+                  </p>
                 </div>
-                <ul className="space-y-2">
-                  {items.map((b) => (
-                    <BookingRow
-                      key={b.id}
-                      booking={b}
-                      onClick={() => setSelectedId(b.id)}
-                    />
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
+              </Card>
+            )}
+
+            {data && filtered.length > 0 && (
+              <div className="space-y-6">
+                {grouped.map(([groupName, items]) => (
+                  <section key={groupName}>
+                    <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2 px-1">
+                      {groupName}
+                    </div>
+                    <ul className="space-y-2">
+                      {items.map((b) => (
+                        <BookingRow key={b.id} booking={b} onClick={() => setSelectedId(b.id)} />
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         <BookingDetailTrainerModal
@@ -176,16 +220,56 @@ export default function TrainerCalendar() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// BookingRow (variant para trainer — muestra cliente, no entrenador)
+// Subcomponentes
 // ──────────────────────────────────────────────────────────────────────────
 
-function BookingRow({
-  booking,
-  onClick,
+function ViewToggle({
+  mode,
+  onChange,
 }: {
-  booking: BookingWithClient;
-  onClick: () => void;
+  mode: ViewMode;
+  onChange: (m: ViewMode) => void;
 }) {
+  return (
+    <div role="tablist" className="inline-flex bg-surface-2 border border-line-2 rounded-xl p-0.5">
+      <ToggleButton active={mode === 'calendar'} onClick={() => onChange('calendar')}>
+        <Icon name="cal" size={14} />
+        <span className="hidden sm:inline">Calendario</span>
+      </ToggleButton>
+      <ToggleButton active={mode === 'list'} onClick={() => onChange('list')}>
+        <Icon name="list" size={14} />
+        <span className="hidden sm:inline">Lista</span>
+      </ToggleButton>
+    </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      role="tab"
+      aria-selected={active}
+      className={[
+        'px-3 py-1.5 rounded-lg text-[13px] font-medium flex items-center gap-1.5 transition-colors',
+        active ? 'bg-accent text-accent-ink' : 'text-fg-2 hover:text-fg',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  );
+}
+
+function BookingRow({ booking, onClick }: { booking: Booking; onClick: () => void }) {
   return (
     <li>
       <button
@@ -228,17 +312,13 @@ function BookingRow({
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Modal de detalle (trainer view) — confirmar/rechazar/registrar/cancelar
-// ──────────────────────────────────────────────────────────────────────────
-
 function BookingDetailTrainerModal({
   booking,
   onClose,
   onAction,
   onRegister,
 }: {
-  booking: BookingWithClient | null;
+  booking: Booking | null;
   onClose: () => void;
   onAction: () => void;
   onRegister: (id: string) => void;
@@ -261,7 +341,7 @@ function BookingDetailTrainerModal({
     try {
       await confirmM.mutate({ bookingId: booking.id });
       onAction();
-    } catch { /* handled in hook */ }
+    } catch { /* */ }
   }
 
   async function handleReject() {
@@ -271,7 +351,7 @@ function BookingDetailTrainerModal({
       setConfirmingReject(false);
       setRejectReason('');
       onAction();
-    } catch { /* handled */ }
+    } catch { /* */ }
   }
 
   async function handleCancel() {
@@ -280,7 +360,7 @@ function BookingDetailTrainerModal({
     try {
       await cancelM.mutate({ bookingId: booking.id });
       onAction();
-    } catch { /* handled */ }
+    } catch { /* */ }
   }
 
   if (confirmingReject) {
@@ -291,10 +371,7 @@ function BookingDetailTrainerModal({
             El cliente recibirá una alerta. Puedes incluir un motivo (opcional).
           </p>
           <div>
-            <label
-              htmlFor="motivo-reject"
-              className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2"
-            >
+            <label htmlFor="motivo-reject" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
               Motivo (opcional)
             </label>
             <textarea
@@ -308,25 +385,13 @@ function BookingDetailTrainerModal({
             />
           </div>
           {rejectM.error && (
-            <div role="alert" className="text-err-fg text-[13px]">
-              {rejectM.error.message}
-            </div>
+            <div role="alert" className="text-err-fg text-[13px]">{rejectM.error.message}</div>
           )}
           <div className="flex gap-2">
-            <Btn
-              variant="secondary"
-              full
-              onClick={() => setConfirmingReject(false)}
-              disabled={rejectM.loading}
-            >
+            <Btn variant="secondary" full onClick={() => setConfirmingReject(false)} disabled={rejectM.loading}>
               Volver
             </Btn>
-            <Btn
-              variant="danger"
-              full
-              onClick={handleReject}
-              disabled={rejectM.loading}
-            >
+            <Btn variant="danger" full onClick={handleReject} disabled={rejectM.loading}>
               {rejectM.loading ? 'Rechazando...' : 'Rechazar'}
             </Btn>
           </div>
@@ -362,10 +427,7 @@ function BookingDetailTrainerModal({
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
           <Field label="Tipo" value={booking.tipo} capitalize />
           <Field label="Cliente" value={clientName} />
-          <Field
-            label="Sede"
-            value={booking.sede ? `${booking.sede.nombre}` : '—'}
-          />
+          <Field label="Sede" value={booking.sede ? `${booking.sede.nombre}` : '—'} />
           <Field label="Solicitada" value={formatShortDate(booking.created_at)} />
         </dl>
 
@@ -393,50 +455,28 @@ function BookingDetailTrainerModal({
           </div>
         )}
 
-        {/* Acciones según estado */}
         <div className="flex flex-col gap-2 pt-3">
           {isPending && (
             <div className="flex gap-2">
-              <Btn
-                variant="danger"
-                full
-                onClick={() => setConfirmingReject(true)}
-                disabled={confirmM.loading}
-              >
+              <Btn variant="danger" full onClick={() => setConfirmingReject(true)} disabled={confirmM.loading}>
                 Rechazar
               </Btn>
-              <Btn
-                full
-                onClick={handleConfirm}
-                disabled={confirmM.loading}
-              >
+              <Btn full onClick={handleConfirm} disabled={confirmM.loading}>
                 {confirmM.loading ? 'Confirmando...' : 'Confirmar'}
               </Btn>
             </div>
           )}
 
           {isReady && (
-            <Btn
-              full
-              size="lg"
-              icon="check"
-              onClick={() => onRegister(booking.id)}
-            >
+            <Btn full size="lg" icon="check" onClick={() => onRegister(booking.id)}>
               Registrar asistencia
             </Btn>
           )}
 
           <div className="flex gap-2">
-            <Btn variant="secondary" full onClick={onClose}>
-              Cerrar
-            </Btn>
+            <Btn variant="secondary" full onClick={onClose}>Cerrar</Btn>
             {cancelable && !isPending && (
-              <Btn
-                variant="ghost"
-                full
-                onClick={handleCancel}
-                disabled={cancelM.loading}
-              >
+              <Btn variant="ghost" full onClick={handleCancel} disabled={cancelM.loading}>
                 {cancelM.loading ? 'Cancelando...' : 'Cancelar sesión'}
               </Btn>
             )}
@@ -446,10 +486,6 @@ function BookingDetailTrainerModal({
     </Modal>
   );
 }
-
-// ──────────────────────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────────────────────
 
 function Field({
   label,
@@ -493,10 +529,41 @@ function FilterChip({
   );
 }
 
-function groupByPeriod(
-  items: BookingWithClient[],
-  filter: 'upcoming' | 'past' | 'all'
-): Array<[string, BookingWithClient[]]> {
+function DayFilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'px-3 py-1 rounded-lg text-[12px] border transition-colors flex-none',
+        active
+          ? 'bg-accent/10 border-accent/30 text-accent'
+          : 'bg-surface-2 border-line text-fg-3 hover:text-fg-2',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  );
+}
+
+function EmptyCalendar() {
+  return (
+    <div className="text-center py-16">
+      <Icon name="cal" size={32} color="#6B746A" className="mx-auto mb-3" />
+      <p className="text-fg-2">Sin sesiones agendadas todavía.</p>
+    </div>
+  );
+}
+
+function groupByPeriod(items: Booking[], filter: 'upcoming' | 'past' | 'all'): Array<[string, Booking[]]> {
   if (items.length === 0) return [];
   const sorted = [...items].sort((a, b) => {
     const ta = new Date(a.fecha_inicio_utc).getTime();
@@ -504,7 +571,7 @@ function groupByPeriod(
     return filter === 'upcoming' ? ta - tb : tb - ta;
   });
 
-  const groups: Record<string, BookingWithClient[]> = {};
+  const groups: Record<string, Booking[]> = {};
   const order: string[] = [];
   for (const b of sorted) {
     const key = bucketLabel(b.fecha_inicio_utc, filter);
@@ -514,7 +581,7 @@ function groupByPeriod(
     }
     groups[key].push(b);
   }
-  return order.map((k) => [k, groups[k]] as [string, BookingWithClient[]]);
+  return order.map((k) => [k, groups[k]] as [string, Booking[]]);
 }
 
 function bucketLabel(utcIso: string, filter: 'upcoming' | 'past' | 'all'): string {

@@ -329,12 +329,15 @@ function bookingsRegisterAttendance(payload, ctx) {
       updated_at: now,
     });
 
-    // Si presente y hay plan, consume una sesión del plan
+    // Si presente y hay plan, consume sesiones del plan según duración.
+    // 1 sesión por cada hora (o fracción) de duración. 60min=1, 90min=2, 120min=2.
     if (presente && booking.plan_usuario_id) {
       const plan = dbFindById('planes_usuario', booking.plan_usuario_id);
       if (plan) {
+        const duracion = Number(booking.duracion_min) || 60;
+        const sesionesGastadas = Math.max(1, Math.ceil(duracion / 60));
         dbUpdateById('planes_usuario', plan.id, {
-          sesiones_consumidas: Number(plan.sesiones_consumidas) + 1,
+          sesiones_consumidas: Number(plan.sesiones_consumidas) + sesionesGastadas,
           updated_at: now,
         });
       }
@@ -427,6 +430,13 @@ function bookingsListMine(payload, ctx) {
   const fromTs = fromUtc ? new Date(fromUtc).getTime() : 0;
   const toTs = toUtc ? new Date(toUtc).getTime() : Number.MAX_SAFE_INTEGER;
 
+  // Filtros adicionales que solo el admin puede usar (para vista de calendario global).
+  const filterTrainerId = isAdmin && payload.filterTrainerId
+    ? String(payload.filterTrainerId) : null;
+  const filterUserId = isAdmin && payload.filterUserId
+    ? String(payload.filterUserId) : null;
+  const filterSedeId = payload.filterSedeId ? String(payload.filterSedeId) : null;
+
   const bookings = dbListAll('agendamientos', function (b) {
     // Filtro por rol:
     //   client → sus bookings (b.user_id === userId)
@@ -440,7 +450,12 @@ function bookingsListMine(payload, ctx) {
     if (includeStates.indexOf(String(b.estado)) === -1) return false;
     if (!b.fecha_inicio_utc) return false;
     const t = new Date(b.fecha_inicio_utc).getTime();
-    return t >= fromTs && t <= toTs;
+    if (t < fromTs || t > toTs) return false;
+    // Filtros admin
+    if (filterTrainerId && b.entrenador_id !== filterTrainerId) return false;
+    if (filterUserId && b.user_id !== filterUserId) return false;
+    if (filterSedeId && b.sede_id !== filterSedeId) return false;
+    return true;
   });
 
   bookings.sort(function (a, b) {
@@ -470,11 +485,27 @@ function bookingsListMine(payload, ctx) {
     return sedeCache[id];
   }
 
+  // Lookup de plan_usuario para mostrar progreso de sesiones
+  const planCache = {};
+  function lookupPlan(id) {
+    if (!id) return null;
+    if (!(id in planCache)) {
+      const p = dbFindById('planes_usuario', id);
+      planCache[id] = p ? {
+        id: p.id,
+        sesionesTotales: Number(p.sesiones_totales),
+        sesionesConsumidas: Number(p.sesiones_consumidas),
+      } : null;
+    }
+    return planCache[id];
+  }
+
   return bookings.map(function (b) {
     return Object.assign({}, b, {
       entrenador: lookupUser(b.entrenador_id),
       cliente: lookupUser(b.user_id),
       sede: lookupSede(b.sede_id),
+      plan: lookupPlan(b.plan_usuario_id),
     });
   });
 }
