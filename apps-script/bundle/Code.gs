@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-02T19:41:18.227Z                              ║
+ * ║  Built:   2026-05-02T19:57:27.395Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -66,7 +66,16 @@ const SCHEMA = {
   sedes: [
     'id', 'nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
     'telefono', 'responsable', 'horarios', 'capacidad', 'observaciones',
-    'servicios', 'reglas', 'estado', 'created_at', 'updated_at'
+    'servicios', 'reglas', 'estado', 'gimnasio_id',
+    'created_at', 'updated_at'
+  ],
+
+  // Iter 10: gimnasios agrupan sedes (ej. Bodytech, SmartFit). Solo Admin
+  // los crea. Los entrenadores piden creación vía solicitudes.
+  gimnasios: [
+    'id', 'nombre', 'descripcion', 'logo_url', 'pais',
+    'verificado', 'estado',
+    'created_at', 'updated_at', 'created_by'
   ],
 
   sedes_entrenadores: [
@@ -3116,11 +3125,61 @@ function adminListUsers(payload, ctx) {
     return String(a.apellidos || '').localeCompare(String(b.apellidos || ''));
   });
 
-  // Enriquecer trainers con flag de tener perfil
+  // Cache de sedes/gimnasios para enriquecer
+  const sedesCache = {};
+  function lookupSede(id) {
+    if (!id) return null;
+    if (id in sedesCache) return sedesCache[id];
+    const s = dbFindById('sedes', id);
+    sedesCache[id] = s ? {
+      id: s.id,
+      nombre: s.nombre,
+      ciudad: s.ciudad,
+      gimnasio_id: s.gimnasio_id || null,
+    } : null;
+    return sedesCache[id];
+  }
+  const gymCache = {};
+  function lookupGym(id) {
+    if (!id) return null;
+    if (id in gymCache) return gymCache[id];
+    const g = dbFindById('gimnasios', id);
+    gymCache[id] = g ? { id: g.id, nombre: g.nombre } : null;
+    return gymCache[id];
+  }
+
+  // Pre-cargar todas las relaciones sedes_usuarios + sedes_entrenadores una vez
+  const allSedeUsuarios = dbListAll('sedes_usuarios', function () { return true; });
+  const allSedeTrainers = dbListAll('sedes_entrenadores', function (st) {
+    return st.estado === 'active';
+  });
+
+  // Enriquecer trainers con flag de tener perfil + sedes/gimnasios
   return users.map(function (u) {
     const hasTrainerProfile = u.rol === 'trainer'
       ? !!dbFindById('entrenadores_perfil', u.id)
       : false;
+
+    // Sedes a las que pertenece (clientes vía sedes_usuarios; trainers vía sedes_entrenadores)
+    let sedesIds = [];
+    if (u.rol === 'client') {
+      sedesIds = allSedeUsuarios
+        .filter(function (su) { return su.user_id === u.id; })
+        .map(function (su) { return su.sede_id; });
+    } else if (u.rol === 'trainer') {
+      sedesIds = allSedeTrainers
+        .filter(function (st) { return st.entrenador_id === u.id; })
+        .map(function (st) { return st.sede_id; });
+    }
+
+    const sedesEnriched = sedesIds.map(lookupSede).filter(Boolean);
+    // Set de gimnasios derivados de las sedes
+    const gymIds = {};
+    sedesEnriched.forEach(function (s) {
+      if (s.gimnasio_id) gymIds[s.gimnasio_id] = true;
+    });
+    const gimnasios = Object.keys(gymIds).map(lookupGym).filter(Boolean);
+
     return {
       id: u.id,
       email: u.email,
@@ -3136,6 +3195,8 @@ function adminListUsers(payload, ctx) {
       created_at: u.created_at,
       last_login_at: u.last_login_at,
       hasTrainerProfile: hasTrainerProfile,
+      sedes: sedesEnriched,
+      gimnasios: gimnasios,
     };
   });
 }
@@ -3419,7 +3480,16 @@ function adminListSedes(_payload, ctx) {
     return String(a.nombre || '').localeCompare(String(b.nombre || ''));
   });
 
-  // Enriquecer con cantidad de trainers y usuarios asignados
+  // Cache de gimnasios
+  const gymCache = {};
+  function lookupGym(id) {
+    if (!id) return null;
+    if (id in gymCache) return gymCache[id];
+    const g = dbFindById('gimnasios', id);
+    gymCache[id] = g ? { id: g.id, nombre: g.nombre, verificado: g.verificado === true } : null;
+    return gymCache[id];
+  }
+
   return sedes.map(function (s) {
     const trainers = dbListAll('sedes_entrenadores', function (st) {
       return st.sede_id === s.id && st.estado === 'active';
@@ -3430,6 +3500,7 @@ function adminListSedes(_payload, ctx) {
     return Object.assign({}, s, {
       trainersCount: trainers.length,
       usuariosCount: users.length,
+      gimnasio: lookupGym(s.gimnasio_id),
     });
   });
 }
@@ -3461,6 +3532,7 @@ function adminCreateSede(payload, ctx) {
       : (payload.servicios || ''),
     reglas: payload.reglas || '',
     estado: 'active',
+    gimnasio_id: payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '',
     created_at: now,
     updated_at: now,
   };
@@ -3478,7 +3550,7 @@ function adminUpdateSede(payload, ctx) {
 
   const allowed = ['nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
                    'telefono', 'responsable', 'horarios', 'capacidad',
-                   'observaciones', 'servicios', 'reglas', 'estado'];
+                   'observaciones', 'servicios', 'reglas', 'estado', 'gimnasio_id'];
   const patch = {};
   for (let i = 0; i < allowed.length; i++) {
     const k = allowed[i];
@@ -3768,6 +3840,372 @@ function adminListAuditLog(payload, ctx) {
     totalReturned: Math.min(all.length, limit),
     totalMatch: all.length,
   };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// gimnasios.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * gimnasios.gs — Endpoints de gimnasios (Bodytech, SmartFit, etc).
+ *
+ * Iteración 10. Solo Admin crea/edita. Trainers ven la lista pública para
+ * asignar sedes. Si su gimnasio no está, hacen una solicitud (solicitudes.gs).
+ */
+
+// ──────────────────────────────────────────────────────────────────────────
+// Lista pública — accesible para cualquier usuario autenticado
+// ──────────────────────────────────────────────────────────────────────────
+
+function gimnasiosListPublic(_payload, _ctx) {
+  const all = dbListAll('gimnasios', function (g) {
+    return g.estado === 'active';
+  });
+  all.sort(function (a, b) {
+    return String(a.nombre || '').localeCompare(String(b.nombre || ''));
+  });
+  return all.map(function (g) {
+    return {
+      id: g.id,
+      nombre: g.nombre,
+      descripcion: g.descripcion,
+      logo_url: g.logo_url,
+      pais: g.pais,
+      verificado: g.verificado === true || g.verificado === 'TRUE',
+    };
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Admin — CRUD
+// ──────────────────────────────────────────────────────────────────────────
+
+function adminListGimnasios(_payload, ctx) {
+  admin_requireAdmin_(ctx);
+  const all = dbListAll('gimnasios', function () { return true; });
+  all.sort(function (a, b) {
+    return String(a.nombre || '').localeCompare(String(b.nombre || ''));
+  });
+
+  // Enriquecer con conteo de sedes
+  return all.map(function (g) {
+    const sedesCount = dbListAll('sedes', function (s) {
+      return s.gimnasio_id === g.id && s.estado === 'active';
+    }).length;
+    return Object.assign({}, g, { sedesCount: sedesCount });
+  });
+}
+
+function adminCreateGimnasio(payload, ctx) {
+  admin_requireAdmin_(ctx);
+  const nombre = vString(vRequired(payload.nombre, 'nombre'), 'nombre', { min: 2, max: 120 });
+
+  // Validar unicidad por nombre (case-insensitive)
+  const existing = dbListAll('gimnasios', function (g) {
+    return String(g.nombre || '').toLowerCase() === nombre.toLowerCase();
+  });
+  if (existing.length > 0) {
+    throw _err('GIMNASIO_EXISTS', 'Ya existe un gimnasio con ese nombre');
+  }
+
+  const id = cryptoUuid();
+  const now = dbNowUtc();
+  const gym = {
+    id: id,
+    nombre: nombre,
+    descripcion: payload.descripcion || '',
+    logo_url: payload.logoUrl || '',
+    pais: payload.pais || 'Colombia',
+    verificado: payload.verificado === true,
+    estado: 'active',
+    created_at: now,
+    updated_at: now,
+    created_by: ctx.userId,
+  };
+  dbInsert('gimnasios', gym);
+
+  auditOk(ctx.userId, 'create_gimnasio', 'gimnasio', id, '', JSON.stringify(gym), ctx.reqMeta);
+  return { gimnasio: gym };
+}
+
+function adminUpdateGimnasio(payload, ctx) {
+  admin_requireAdmin_(ctx);
+  const gymId = vUuid(vRequired(payload.gimnasioId, 'gimnasioId'), 'gimnasioId');
+  const before = dbFindById('gimnasios', gymId);
+  if (!before) throw _err('NOT_FOUND', 'Gimnasio no encontrado');
+
+  const patch = {};
+  if ('nombre' in payload) patch.nombre = payload.nombre;
+  if ('descripcion' in payload) patch.descripcion = payload.descripcion;
+  if ('logoUrl' in payload) patch.logo_url = payload.logoUrl;
+  if ('pais' in payload) patch.pais = payload.pais;
+  if ('verificado' in payload) patch.verificado = payload.verificado === true;
+  if ('estado' in payload) patch.estado = payload.estado;
+  patch.updated_at = dbNowUtc();
+
+  const updated = dbUpdateById('gimnasios', gymId, patch);
+  auditOk(ctx.userId, 'update_gimnasio', 'gimnasio', gymId,
+    JSON.stringify(before), JSON.stringify(updated), ctx.reqMeta);
+  return { gimnasio: updated };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// solicitudes.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * solicitudes.gs — Solicitudes de creación de gimnasios y sedes.
+ *
+ * Iteración 10. Los entrenadores piden, el admin aprueba o rechaza.
+ * Cuando se aprueba `crear_gimnasio` se crea la entidad en `gimnasios`.
+ * Cuando se aprueba `crear_sede` se crea la entidad en `sedes`.
+ */
+
+// Tipos válidos para solicitudes (Iter 10)
+const SOLICITUD_TYPES_NEW = ['crear_gimnasio', 'crear_sede'];
+
+// ──────────────────────────────────────────────────────────────────────────
+// Crear solicitud — trainer / admin / super_admin
+// ──────────────────────────────────────────────────────────────────────────
+
+function solicitudesCreate(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin pueden crear solicitudes');
+  }
+
+  const tipo = vEnum(payload.tipo, 'tipo', SOLICITUD_TYPES_NEW);
+  const datos = payload.datos && typeof payload.datos === 'object' ? payload.datos : {};
+
+  // Validación específica por tipo
+  if (tipo === 'crear_gimnasio') {
+    vString(vRequired(datos.nombre, 'datos.nombre'), 'datos.nombre', { min: 2, max: 120 });
+    if (!Array.isArray(datos.sedes) || datos.sedes.length === 0) {
+      throw _err('VALIDATION', 'Debes incluir al menos una sede');
+    }
+    for (let i = 0; i < datos.sedes.length; i++) {
+      vString(vRequired(datos.sedes[i].nombre, 'datos.sedes[' + i + '].nombre'),
+        'datos.sedes[' + i + '].nombre', { min: 2, max: 120 });
+    }
+  } else if (tipo === 'crear_sede') {
+    if (!datos.gimnasioId) {
+      throw _err('VALIDATION', 'Debes especificar el gimnasio al que pertenece la sede');
+    }
+    vUuid(datos.gimnasioId, 'datos.gimnasioId');
+    vString(vRequired(datos.nombre, 'datos.nombre'), 'datos.nombre', { min: 2, max: 120 });
+  }
+
+  const id = cryptoUuid();
+  const now = dbNowUtc();
+  dbInsert('solicitudes', {
+    id: id,
+    tipo: tipo,
+    user_id: ctx.userId,
+    target_id: tipo === 'crear_sede' ? String(datos.gimnasioId) : '',
+    datos: datos,
+    estado: 'pending',
+    resuelta_por: '',
+    resuelta_at_utc: '',
+    motivo_resolucion: '',
+    created_at: now,
+  });
+
+  auditOk(ctx.userId, 'create_solicitud', 'solicitud', id,
+    '', JSON.stringify({ tipo: tipo }), ctx.reqMeta);
+
+  return {
+    ok: true,
+    solicitudId: id,
+    estado: 'pending',
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Listar — trainer ve las suyas, admin ve todas (con filtro)
+// ──────────────────────────────────────────────────────────────────────────
+
+function solicitudesList(payload, ctx) {
+  const isAdmin = ctx.role === 'admin' || ctx.role === 'super_admin';
+  const filterEstado = payload && payload.estado ? String(payload.estado) : null;
+
+  const all = dbListAll('solicitudes', function (s) {
+    if (!isAdmin && s.user_id !== ctx.userId) return false;
+    if (filterEstado && s.estado !== filterEstado) return false;
+    if (SOLICITUD_TYPES_NEW.indexOf(String(s.tipo)) === -1) return false;
+    return true;
+  });
+
+  all.sort(function (a, b) {
+    return String(b.created_at).localeCompare(String(a.created_at));
+  });
+
+  // Enriquecer con datos del solicitante (admin necesita verlo)
+  const userCache = {};
+  function lookupUser(id) {
+    if (!id) return null;
+    if (id in userCache) return userCache[id];
+    const u = dbFindById('usuarios', id);
+    userCache[id] = u
+      ? { id: u.id, nombres: u.nombres, apellidos: u.apellidos, email: u.email }
+      : null;
+    return userCache[id];
+  }
+
+  return all.map(function (s) {
+    return Object.assign({}, s, {
+      solicitante: lookupUser(s.user_id),
+      resuelto_por_user: lookupUser(s.resuelta_por),
+    });
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Resolver (aprobar / rechazar) — solo admin
+// ──────────────────────────────────────────────────────────────────────────
+
+function solicitudesResolve(payload, ctx) {
+  admin_requireAdmin_(ctx);
+
+  const solicitudId = vUuid(vRequired(payload.solicitudId, 'solicitudId'), 'solicitudId');
+  const accion = vEnum(payload.accion, 'accion', ['approve', 'reject']);
+  const motivo = payload.motivo ? vString(payload.motivo, 'motivo', { max: 500 }) : '';
+
+  const sol = dbFindById('solicitudes', solicitudId);
+  if (!sol) throw _err('NOT_FOUND', 'Solicitud no encontrada');
+  if (sol.estado !== 'pending') {
+    throw _err('INVALID_STATE', 'Esta solicitud ya fue resuelta');
+  }
+
+  const now = dbNowUtc();
+  let createdEntity = null;
+
+  if (accion === 'approve') {
+    if (sol.tipo === 'crear_gimnasio') {
+      createdEntity = solicitudes_approveCreateGimnasio_(sol, ctx);
+    } else if (sol.tipo === 'crear_sede') {
+      createdEntity = solicitudes_approveCreateSede_(sol, ctx);
+    } else {
+      throw _err('UNSUPPORTED', 'Tipo de solicitud no soportado para auto-aprobación');
+    }
+  }
+
+  dbUpdateById('solicitudes', solicitudId, {
+    estado: accion === 'approve' ? 'approved' : 'rejected',
+    resuelta_por: ctx.userId,
+    resuelta_at_utc: now,
+    motivo_resolucion: motivo,
+  });
+
+  // Crear alerta al solicitante
+  alerts_create_({
+    userId: sol.user_id,
+    tipo: accion === 'approve' ? 'sistema_anuncio' : 'sistema_anuncio',
+    severidad: accion === 'approve' ? 'info' : 'warn',
+    titulo: accion === 'approve'
+      ? 'Tu solicitud fue aprobada'
+      : 'Tu solicitud fue rechazada',
+    descripcion: motivo
+      ? motivo
+      : (accion === 'approve'
+        ? 'Ya está disponible en la plataforma.'
+        : 'Contáctanos si tienes preguntas.'),
+    accionUrl: '/solicitudes',
+    entidadRef: solicitudId,
+  });
+
+  auditOk(ctx.userId, 'resolve_solicitud', 'solicitud', solicitudId,
+    '', JSON.stringify({ accion: accion }), ctx.reqMeta);
+
+  return {
+    ok: true,
+    estado: accion === 'approve' ? 'approved' : 'rejected',
+    createdEntity: createdEntity,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Helpers para aprobar tipos específicos
+// ──────────────────────────────────────────────────────────────────────────
+
+function solicitudes_approveCreateGimnasio_(sol, ctx) {
+  const datos = typeof sol.datos === 'object' ? sol.datos : JSON.parse(sol.datos || '{}');
+  const now = dbNowUtc();
+
+  // Crear gimnasio
+  const gymId = cryptoUuid();
+  dbInsert('gimnasios', {
+    id: gymId,
+    nombre: String(datos.nombre || '').trim(),
+    descripcion: datos.descripcion || '',
+    logo_url: '',
+    pais: datos.pais || 'Colombia',
+    verificado: false,
+    estado: 'active',
+    created_at: now,
+    updated_at: now,
+    created_by: ctx.userId,
+  });
+
+  // Crear las sedes asociadas
+  const createdSedes = [];
+  if (Array.isArray(datos.sedes)) {
+    for (let i = 0; i < datos.sedes.length; i++) {
+      const sd = datos.sedes[i];
+      const sedeId = cryptoUuid();
+      dbInsert('sedes', {
+        id: sedeId,
+        nombre: String(sd.nombre || '').trim(),
+        codigo_interno: sd.codigo_interno || '',
+        direccion: sd.direccion || '',
+        ciudad: sd.ciudad || '',
+        barrio: sd.barrio || '',
+        telefono: sd.telefono || '',
+        responsable: sd.responsable || '',
+        horarios: sd.horarios || {},
+        capacidad: sd.capacidad || '',
+        observaciones: sd.observaciones || '',
+        servicios: Array.isArray(sd.servicios) ? sd.servicios.join(',') : (sd.servicios || ''),
+        reglas: sd.reglas || '',
+        estado: 'active',
+        gimnasio_id: gymId,
+        created_at: now,
+        updated_at: now,
+      });
+      createdSedes.push({ id: sedeId, nombre: sd.nombre });
+    }
+  }
+
+  return { gimnasioId: gymId, sedes: createdSedes };
+}
+
+function solicitudes_approveCreateSede_(sol, ctx) {
+  const datos = typeof sol.datos === 'object' ? sol.datos : JSON.parse(sol.datos || '{}');
+  const now = dbNowUtc();
+
+  const sedeId = cryptoUuid();
+  dbInsert('sedes', {
+    id: sedeId,
+    nombre: String(datos.nombre || '').trim(),
+    codigo_interno: datos.codigo_interno || '',
+    direccion: datos.direccion || '',
+    ciudad: datos.ciudad || '',
+    barrio: datos.barrio || '',
+    telefono: datos.telefono || '',
+    responsable: datos.responsable || '',
+    horarios: datos.horarios || {},
+    capacidad: datos.capacidad || '',
+    observaciones: datos.observaciones || '',
+    servicios: Array.isArray(datos.servicios) ? datos.servicios.join(',') : (datos.servicios || ''),
+    reglas: datos.reglas || '',
+    estado: 'active',
+    gimnasio_id: String(datos.gimnasioId || ''),
+    created_at: now,
+    updated_at: now,
+  });
+
+  void ctx;
+  return { sedeId: sedeId, gimnasioId: datos.gimnasioId };
 }
 
 
@@ -4154,6 +4592,29 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'adminListAuditLog':
       return adminListAuditLog(payload, ctx);
 
+    // ── Gimnasios (Iter 10) ──────────────────────────────────────────────
+    case 'listGimnasiosPublic':
+      return gimnasiosListPublic(payload, ctx);
+
+    case 'adminListGimnasios':
+      return adminListGimnasios(payload, ctx);
+
+    case 'adminCreateGimnasio':
+      return adminCreateGimnasio(payload, ctx);
+
+    case 'adminUpdateGimnasio':
+      return adminUpdateGimnasio(payload, ctx);
+
+    // ── Solicitudes (Iter 10) ────────────────────────────────────────────
+    case 'createSolicitud':
+      return solicitudesCreate(payload, ctx);
+
+    case 'listSolicitudes':
+      return solicitudesList(payload, ctx);
+
+    case 'resolveSolicitud':
+      return solicitudesResolve(payload, ctx);
+
     // ── Options (Iter 5) ─────────────────────────────────────────────────
     case 'getBookingOptions':
       return optionsGetBookingOptions(payload, ctx);
@@ -4278,6 +4739,12 @@ function bootstrap() {
   const created = bootstrap_createMissingSheets_();
   Logger.log('✓ Hojas creadas: ' + created.length + (created.length ? ' → ' + created.join(', ') : ''));
 
+  // 3b. Migrar columnas faltantes en hojas existentes (cuando schema se amplía)
+  const colsAdded = bootstrap_addMissingColumns_();
+  if (colsAdded > 0) {
+    Logger.log('✓ Columnas migradas: ' + colsAdded);
+  }
+
   // 4. Borrar la hoja "Hoja 1" / "Sheet1" default si quedó huérfana
   bootstrap_dropDefaultSheet_();
 
@@ -4355,6 +4822,43 @@ function bootstrap_applySchema_(sheet, headers) {
   if (maxRows > 100) {
     sheet.deleteRows(101, maxRows - 100);
   }
+}
+
+/**
+ * Agrega columnas faltantes a hojas existentes cuando el schema se amplía.
+ * Devuelve el número total de columnas agregadas. Idempotente.
+ */
+function bootstrap_addMissingColumns_() {
+  const ss = db_getSpreadsheet_();
+  let totalAdded = 0;
+
+  for (const name in SCHEMA) {
+    const sh = ss.getSheetByName(name);
+    if (!sh) continue; // ya manejado por createMissingSheets
+
+    const expected = SCHEMA[name];
+    const lastCol = sh.getLastColumn();
+    if (lastCol === 0) continue;
+
+    const actual = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+    const missing = expected.filter(function (h) { return actual.indexOf(h) === -1; });
+    if (missing.length === 0) continue;
+
+    for (let i = 0; i < missing.length; i++) {
+      const col = missing[i];
+      const newColIdx = sh.getLastColumn() + 1;
+      sh.getRange(1, newColIdx).setValue(col);
+      sh.getRange(1, newColIdx)
+        .setFontWeight('bold')
+        .setBackground('#1F2620')
+        .setFontColor('#F2F4EF');
+    }
+
+    Logger.log('  ✓ ' + name + ': ' + missing.length + ' col(s) → ' + missing.join(', '));
+    totalAdded += missing.length;
+  }
+
+  return totalAdded;
 }
 
 function bootstrap_dropDefaultSheet_() {

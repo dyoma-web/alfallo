@@ -9,6 +9,18 @@ import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { UserFormModal } from '../components/admin/UserFormModal';
 import { formatRelative } from '../lib/datetime';
 
+interface SedeRef {
+  id: string;
+  nombre: string;
+  ciudad?: string;
+  gimnasio_id?: string | null;
+}
+
+interface GymRef {
+  id: string;
+  nombre: string;
+}
+
 interface UserListItem {
   id: string;
   email: string;
@@ -22,7 +34,11 @@ interface UserListItem {
   entrenador_asignado_id?: string;
   last_login_at?: string;
   hasTrainerProfile?: boolean;
+  sedes?: SedeRef[];
+  gimnasios?: GymRef[];
 }
+
+type GroupBy = 'none' | 'rol' | 'sede' | 'gimnasio';
 
 const ROLE_LABEL: Record<string, string> = {
   super_admin: 'Super Admin',
@@ -50,6 +66,7 @@ export default function AdminUsers() {
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState<string>('');
   const [filterEstado, setFilterEstado] = useState<string>('');
+  const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -162,6 +179,17 @@ export default function AdminUsers() {
             <option value="pending">Pendientes</option>
             <option value="suspended">Suspendidos</option>
           </select>
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+            className="h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60"
+            title="Agrupar por"
+          >
+            <option value="none">Sin agrupar</option>
+            <option value="rol">Agrupar por rol</option>
+            <option value="gimnasio">Agrupar por gimnasio</option>
+            <option value="sede">Agrupar por sede</option>
+          </select>
         </div>
 
         {data && (
@@ -192,7 +220,7 @@ export default function AdminUsers() {
           </Card>
         )}
 
-        {data && filtered.length > 0 && (
+        {data && filtered.length > 0 && groupBy === 'none' && (
           <ul className="space-y-2">
             {filtered.map((u) => (
               <UserRow
@@ -206,6 +234,18 @@ export default function AdminUsers() {
               />
             ))}
           </ul>
+        )}
+
+        {data && filtered.length > 0 && groupBy !== 'none' && (
+          <GroupedUsers
+            users={filtered}
+            groupBy={groupBy}
+            onEdit={(u) => setEditingUser(u)}
+            onSuspend={handleSuspend}
+            onReactivate={handleReactivate}
+            onResend={handleResend}
+            busy={suspend.loading || reactivate.loading || resend.loading}
+          />
         )}
       </div>
 
@@ -227,6 +267,105 @@ export default function AdminUsers() {
         <ResendLinkModal link={resentLink} onClose={() => setResentLink(null)} />
       )}
     </AppShell>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Vista agrupada
+// ──────────────────────────────────────────────────────────────────────────
+
+function GroupedUsers({
+  users,
+  groupBy,
+  onEdit,
+  onSuspend,
+  onReactivate,
+  onResend,
+  busy,
+}: {
+  users: UserListItem[];
+  groupBy: GroupBy;
+  onEdit: (u: UserListItem) => void;
+  onSuspend: (id: string) => void;
+  onReactivate: (id: string) => void;
+  onResend: (id: string) => void;
+  busy: boolean;
+}) {
+  const groups = useMemo(() => {
+    const map = new Map<string, { label: string; users: UserListItem[] }>();
+    const noneKey = '__none__';
+
+    for (const u of users) {
+      if (groupBy === 'rol') {
+        const k = u.rol;
+        if (!map.has(k)) map.set(k, { label: ROLE_LABEL[k] ?? k, users: [] });
+        map.get(k)!.users.push(u);
+      } else if (groupBy === 'gimnasio') {
+        const gyms = u.gimnasios ?? [];
+        if (gyms.length === 0) {
+          if (!map.has(noneKey)) map.set(noneKey, { label: 'Sin gimnasio', users: [] });
+          map.get(noneKey)!.users.push(u);
+        } else {
+          for (const g of gyms) {
+            const k = g.id;
+            if (!map.has(k)) map.set(k, { label: g.nombre, users: [] });
+            map.get(k)!.users.push(u);
+          }
+        }
+      } else if (groupBy === 'sede') {
+        const sedes = u.sedes ?? [];
+        if (sedes.length === 0) {
+          if (!map.has(noneKey)) map.set(noneKey, { label: 'Sin sede asignada', users: [] });
+          map.get(noneKey)!.users.push(u);
+        } else {
+          for (const s of sedes) {
+            const k = s.id;
+            const lbl = s.ciudad ? `${s.nombre} · ${s.ciudad}` : s.nombre;
+            if (!map.has(k)) map.set(k, { label: lbl, users: [] });
+            map.get(k)!.users.push(u);
+          }
+        }
+      }
+    }
+
+    // Convertir a array ordenado: "Sin..." al final
+    const arr = Array.from(map.entries()).map(([k, v]) => ({ key: k, ...v }));
+    arr.sort((a, b) => {
+      if (a.key === '__none__') return 1;
+      if (b.key === '__none__') return -1;
+      return a.label.localeCompare(b.label);
+    });
+    return arr;
+  }, [users, groupBy]);
+
+  return (
+    <div className="space-y-6">
+      {groups.map((g) => (
+        <section key={g.key}>
+          <div className="flex items-baseline justify-between mb-2 px-1">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
+              {g.label}
+            </h2>
+            <span className="text-[11px] text-fg-3">
+              {g.users.length} {g.users.length === 1 ? 'usuario' : 'usuarios'}
+            </span>
+          </div>
+          <ul className="space-y-2">
+            {g.users.map((u) => (
+              <UserRow
+                key={u.id + g.key}
+                user={u}
+                onEdit={() => onEdit(u)}
+                onSuspend={() => onSuspend(u.id)}
+                onReactivate={() => onReactivate(u.id)}
+                onResend={() => onResend(u.id)}
+                busy={busy}
+              />
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -272,8 +411,31 @@ function UserRow({
               </span>
             </div>
             <div className="text-fg-2 text-[12px] mt-0.5 truncate">{user.email}</div>
+            {(user.gimnasios && user.gimnasios.length > 0) || (user.sedes && user.sedes.length > 0) ? (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {user.gimnasios?.slice(0, 2).map((g) => (
+                  <span
+                    key={'g' + g.id}
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20"
+                  >
+                    {g.nombre}
+                  </span>
+                ))}
+                {user.sedes?.slice(0, 2).map((s) => (
+                  <span
+                    key={'s' + s.id}
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-fg-2 border border-line"
+                  >
+                    {s.nombre}
+                  </span>
+                ))}
+                {((user.gimnasios?.length ?? 0) + (user.sedes?.length ?? 0)) > 4 && (
+                  <span className="text-[10px] text-fg-3">+más</span>
+                )}
+              </div>
+            ) : null}
             {user.last_login_at && (
-              <div className="text-fg-3 text-[11px] mt-0.5">
+              <div className="text-fg-3 text-[11px] mt-1">
                 Último login {formatRelative(user.last_login_at)}
               </div>
             )}

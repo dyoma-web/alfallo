@@ -212,6 +212,29 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'adminListAuditLog':
       return adminListAuditLog(payload, ctx);
 
+    // ── Gimnasios (Iter 10) ──────────────────────────────────────────────
+    case 'listGimnasiosPublic':
+      return gimnasiosListPublic(payload, ctx);
+
+    case 'adminListGimnasios':
+      return adminListGimnasios(payload, ctx);
+
+    case 'adminCreateGimnasio':
+      return adminCreateGimnasio(payload, ctx);
+
+    case 'adminUpdateGimnasio':
+      return adminUpdateGimnasio(payload, ctx);
+
+    // ── Solicitudes (Iter 10) ────────────────────────────────────────────
+    case 'createSolicitud':
+      return solicitudesCreate(payload, ctx);
+
+    case 'listSolicitudes':
+      return solicitudesList(payload, ctx);
+
+    case 'resolveSolicitud':
+      return solicitudesResolve(payload, ctx);
+
     // ── Options (Iter 5) ─────────────────────────────────────────────────
     case 'getBookingOptions':
       return optionsGetBookingOptions(payload, ctx);

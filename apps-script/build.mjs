@@ -33,6 +33,8 @@ const ORDER = [
   'bookings.gs',
   'trainer.gs',
   'admin.gs',
+  'gimnasios.gs',
+  'solicitudes.gs',
   'backup.gs',
   'Code.gs',
   'bootstrap.gs',

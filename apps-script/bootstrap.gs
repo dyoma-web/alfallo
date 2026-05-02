@@ -66,6 +66,12 @@ function bootstrap() {
   const created = bootstrap_createMissingSheets_();
   Logger.log('✓ Hojas creadas: ' + created.length + (created.length ? ' → ' + created.join(', ') : ''));
 
+  // 3b. Migrar columnas faltantes en hojas existentes (cuando schema se amplía)
+  const colsAdded = bootstrap_addMissingColumns_();
+  if (colsAdded > 0) {
+    Logger.log('✓ Columnas migradas: ' + colsAdded);
+  }
+
   // 4. Borrar la hoja "Hoja 1" / "Sheet1" default si quedó huérfana
   bootstrap_dropDefaultSheet_();
 
@@ -143,6 +149,43 @@ function bootstrap_applySchema_(sheet, headers) {
   if (maxRows > 100) {
     sheet.deleteRows(101, maxRows - 100);
   }
+}
+
+/**
+ * Agrega columnas faltantes a hojas existentes cuando el schema se amplía.
+ * Devuelve el número total de columnas agregadas. Idempotente.
+ */
+function bootstrap_addMissingColumns_() {
+  const ss = db_getSpreadsheet_();
+  let totalAdded = 0;
+
+  for (const name in SCHEMA) {
+    const sh = ss.getSheetByName(name);
+    if (!sh) continue; // ya manejado por createMissingSheets
+
+    const expected = SCHEMA[name];
+    const lastCol = sh.getLastColumn();
+    if (lastCol === 0) continue;
+
+    const actual = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+    const missing = expected.filter(function (h) { return actual.indexOf(h) === -1; });
+    if (missing.length === 0) continue;
+
+    for (let i = 0; i < missing.length; i++) {
+      const col = missing[i];
+      const newColIdx = sh.getLastColumn() + 1;
+      sh.getRange(1, newColIdx).setValue(col);
+      sh.getRange(1, newColIdx)
+        .setFontWeight('bold')
+        .setBackground('#1F2620')
+        .setFontColor('#F2F4EF');
+    }
+
+    Logger.log('  ✓ ' + name + ': ' + missing.length + ' col(s) → ' + missing.join(', '));
+    totalAdded += missing.length;
+  }
+
+  return totalAdded;
 }
 
 function bootstrap_dropDefaultSheet_() {

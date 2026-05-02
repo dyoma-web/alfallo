@@ -117,11 +117,61 @@ function adminListUsers(payload, ctx) {
     return String(a.apellidos || '').localeCompare(String(b.apellidos || ''));
   });
 
-  // Enriquecer trainers con flag de tener perfil
+  // Cache de sedes/gimnasios para enriquecer
+  const sedesCache = {};
+  function lookupSede(id) {
+    if (!id) return null;
+    if (id in sedesCache) return sedesCache[id];
+    const s = dbFindById('sedes', id);
+    sedesCache[id] = s ? {
+      id: s.id,
+      nombre: s.nombre,
+      ciudad: s.ciudad,
+      gimnasio_id: s.gimnasio_id || null,
+    } : null;
+    return sedesCache[id];
+  }
+  const gymCache = {};
+  function lookupGym(id) {
+    if (!id) return null;
+    if (id in gymCache) return gymCache[id];
+    const g = dbFindById('gimnasios', id);
+    gymCache[id] = g ? { id: g.id, nombre: g.nombre } : null;
+    return gymCache[id];
+  }
+
+  // Pre-cargar todas las relaciones sedes_usuarios + sedes_entrenadores una vez
+  const allSedeUsuarios = dbListAll('sedes_usuarios', function () { return true; });
+  const allSedeTrainers = dbListAll('sedes_entrenadores', function (st) {
+    return st.estado === 'active';
+  });
+
+  // Enriquecer trainers con flag de tener perfil + sedes/gimnasios
   return users.map(function (u) {
     const hasTrainerProfile = u.rol === 'trainer'
       ? !!dbFindById('entrenadores_perfil', u.id)
       : false;
+
+    // Sedes a las que pertenece (clientes vía sedes_usuarios; trainers vía sedes_entrenadores)
+    let sedesIds = [];
+    if (u.rol === 'client') {
+      sedesIds = allSedeUsuarios
+        .filter(function (su) { return su.user_id === u.id; })
+        .map(function (su) { return su.sede_id; });
+    } else if (u.rol === 'trainer') {
+      sedesIds = allSedeTrainers
+        .filter(function (st) { return st.entrenador_id === u.id; })
+        .map(function (st) { return st.sede_id; });
+    }
+
+    const sedesEnriched = sedesIds.map(lookupSede).filter(Boolean);
+    // Set de gimnasios derivados de las sedes
+    const gymIds = {};
+    sedesEnriched.forEach(function (s) {
+      if (s.gimnasio_id) gymIds[s.gimnasio_id] = true;
+    });
+    const gimnasios = Object.keys(gymIds).map(lookupGym).filter(Boolean);
+
     return {
       id: u.id,
       email: u.email,
@@ -137,6 +187,8 @@ function adminListUsers(payload, ctx) {
       created_at: u.created_at,
       last_login_at: u.last_login_at,
       hasTrainerProfile: hasTrainerProfile,
+      sedes: sedesEnriched,
+      gimnasios: gimnasios,
     };
   });
 }
@@ -420,7 +472,16 @@ function adminListSedes(_payload, ctx) {
     return String(a.nombre || '').localeCompare(String(b.nombre || ''));
   });
 
-  // Enriquecer con cantidad de trainers y usuarios asignados
+  // Cache de gimnasios
+  const gymCache = {};
+  function lookupGym(id) {
+    if (!id) return null;
+    if (id in gymCache) return gymCache[id];
+    const g = dbFindById('gimnasios', id);
+    gymCache[id] = g ? { id: g.id, nombre: g.nombre, verificado: g.verificado === true } : null;
+    return gymCache[id];
+  }
+
   return sedes.map(function (s) {
     const trainers = dbListAll('sedes_entrenadores', function (st) {
       return st.sede_id === s.id && st.estado === 'active';
@@ -431,6 +492,7 @@ function adminListSedes(_payload, ctx) {
     return Object.assign({}, s, {
       trainersCount: trainers.length,
       usuariosCount: users.length,
+      gimnasio: lookupGym(s.gimnasio_id),
     });
   });
 }
@@ -462,6 +524,7 @@ function adminCreateSede(payload, ctx) {
       : (payload.servicios || ''),
     reglas: payload.reglas || '',
     estado: 'active',
+    gimnasio_id: payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '',
     created_at: now,
     updated_at: now,
   };
@@ -479,7 +542,7 @@ function adminUpdateSede(payload, ctx) {
 
   const allowed = ['nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
                    'telefono', 'responsable', 'horarios', 'capacidad',
-                   'observaciones', 'servicios', 'reglas', 'estado'];
+                   'observaciones', 'servicios', 'reglas', 'estado', 'gimnasio_id'];
   const patch = {};
   for (let i = 0; i < allowed.length; i++) {
     const k = allowed[i];

@@ -48,7 +48,16 @@ const SCHEMA = {
   sedes: [
     'id', 'nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
     'telefono', 'responsable', 'horarios', 'capacidad', 'observaciones',
-    'servicios', 'reglas', 'estado', 'created_at', 'updated_at'
+    'servicios', 'reglas', 'estado', 'gimnasio_id',
+    'created_at', 'updated_at'
+  ],
+
+  // Iter 10: gimnasios agrupan sedes (ej. Bodytech, SmartFit). Solo Admin
+  // los crea. Los entrenadores piden creación vía solicitudes.
+  gimnasios: [
+    'id', 'nombre', 'descripcion', 'logo_url', 'pais',
+    'verificado', 'estado',
+    'created_at', 'updated_at', 'created_by'
   ],
 
   sedes_entrenadores: [

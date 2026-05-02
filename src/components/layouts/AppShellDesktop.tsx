@@ -23,16 +23,19 @@ const NAV_TRAINER: NavItem[] = [
   { to: '/dashboard', icon: 'home', label: 'Hoy' },
   { to: '/calendario', icon: 'cal', label: 'Calendario' },
   { to: '/usuarios', icon: 'group', label: 'Mis usuarios' },
+  { to: '/solicitudes', icon: 'msg', label: 'Solicitudes' },
   { to: '/alertas', icon: 'bell', label: 'Alertas' },
   { to: '/perfil', icon: 'user', label: 'Perfil' },
 ];
 
 const NAV_ADMIN: NavItem[] = [
   { to: '/dashboard', icon: 'home', label: 'Inicio' },
-  { to: '/usuarios', icon: 'group', label: 'Usuarios' },
-  { to: '/sedes', icon: 'building', label: 'Sedes' },
-  { to: '/planes', icon: 'shield', label: 'Planes' },
   { to: '/calendario', icon: 'cal', label: 'Calendario' },
+  { to: '/usuarios', icon: 'group', label: 'Usuarios' },
+  { to: '/gimnasios', icon: 'building', label: 'Gimnasios' },
+  { to: '/sedes', icon: 'mapPin', label: 'Sedes' },
+  { to: '/planes', icon: 'shield', label: 'Planes' },
+  { to: '/solicitudes', icon: 'msg', label: 'Solicitudes' },
   { to: '/alertas', icon: 'bell', label: 'Alertas' },
   { to: '/perfil', icon: 'user', label: 'Perfil' },
 ];

@@ -34,6 +34,8 @@ const AdminUsers = lazyWithRetry(() => import('./pages/AdminUsers'));
 const AdminSedes = lazyWithRetry(() => import('./pages/AdminSedes'));
 const AdminPlanes = lazyWithRetry(() => import('./pages/AdminPlanes'));
 const AdminCalendar = lazyWithRetry(() => import('./pages/AdminCalendar'));
+const AdminGimnasios = lazyWithRetry(() => import('./pages/AdminGimnasios'));
+const Solicitudes = lazyWithRetry(() => import('./pages/Solicitudes'));
 
 // Otras
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
@@ -152,6 +154,16 @@ export function AppRouter() {
               </RequireAuth>
             }
           />
+          <Route
+            path="/solicitudes"
+            element={
+              <RequireAuth>
+                <RequireRole roles={['trainer', 'admin', 'super_admin']}>
+                  <Solicitudes />
+                </RequireRole>
+              </RequireAuth>
+            }
+          />
 
           {/* Solo Admin */}
           <Route
@@ -170,6 +182,16 @@ export function AppRouter() {
               <RequireAuth>
                 <RequireRole roles={['admin', 'super_admin']}>
                   <AdminPlanes />
+                </RequireRole>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/gimnasios"
+            element={
+              <RequireAuth>
+                <RequireRole roles={['admin', 'super_admin']}>
+                  <AdminGimnasios />
                 </RequireRole>
               </RequireAuth>
             }

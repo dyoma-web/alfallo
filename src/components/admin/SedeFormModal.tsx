@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { Modal } from '../Modal';
 import { Field } from '../Field';
 import { Btn } from '../Btn';
-import { useApiMutation } from '../../lib/useApiQuery';
+import { useApiMutation, useApiQuery } from '../../lib/useApiQuery';
 
 interface Sede {
   id: string;
@@ -19,6 +19,7 @@ interface Sede {
   servicios?: string;
   reglas?: string;
   estado?: string;
+  gimnasio_id?: string;
 }
 
 interface SedeForm {
@@ -33,6 +34,12 @@ interface SedeForm {
   observaciones: string;
   servicios: string;
   reglas: string;
+  gimnasioId: string;
+}
+
+interface GymOption {
+  id: string;
+  nombre: string;
 }
 
 interface Props {
@@ -46,6 +53,11 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
   const isEdit = !!initialSede;
   const create = useApiMutation('adminCreateSede');
   const update = useApiMutation('adminUpdateSede');
+  const { data: gimnasios } = useApiQuery<GymOption[]>(
+    'adminListGimnasios',
+    {},
+    { enabled: open }
+  );
 
   const {
     register,
@@ -65,6 +77,7 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
       observaciones: '',
       servicios: '',
       reglas: '',
+      gimnasioId: '',
     },
   });
 
@@ -82,6 +95,7 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
         observaciones: initialSede?.observaciones ?? '',
         servicios: initialSede?.servicios ?? '',
         reglas: initialSede?.reglas ?? '',
+        gimnasioId: initialSede?.gimnasio_id ?? '',
       });
       create.reset();
       update.reset();
@@ -113,6 +127,26 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
   return (
     <Modal open onClose={onClose} title={isEdit ? 'Editar sede' : 'Crear sede'} size="lg">
       <form onSubmit={handleSubmit(onSubmit)} className="px-5 py-5 space-y-4">
+        <div>
+          <label htmlFor="gimnasioId" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+            Gimnasio (opcional)
+          </label>
+          <select
+            id="gimnasioId"
+            {...register('gimnasioId')}
+            className="w-full h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60"
+          >
+            <option value="">Sede independiente (sin marca)</option>
+            {gimnasios?.map((g) => (
+              <option key={g.id} value={g.id}>{g.nombre}</option>
+            ))}
+          </select>
+          <p className="text-[12px] text-fg-3 mt-1.5">
+            Si la sede pertenece a una cadena (Bodytech, SmartFit, etc.), selecciónala. Si no aparece, créala primero en{' '}
+            <span className="text-fg-2">/gimnasios</span>.
+          </p>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field
             label="Nombre"
