@@ -17,12 +17,8 @@ const UserDashboard = lazyWithRetry(() => import('./pages/UserDashboard'));
 const MyPlan = lazyWithRetry(() => import('./pages/MyPlan'));
 const Alerts = lazyWithRetry(() => import('./pages/Alerts'));
 const Profile = lazyWithRetry(() => import('./pages/Profile'));
-const CalendarPlaceholder = lazyWithRetry(() =>
-  import('./pages/ComingSoon').then((m) => ({ default: m.CalendarPlaceholder }))
-);
-const BookingPlaceholder = lazyWithRetry(() =>
-  import('./pages/ComingSoon').then((m) => ({ default: m.BookingPlaceholder }))
-);
+const UserCalendar = lazyWithRetry(() => import('./pages/UserCalendar'));
+const Booking = lazyWithRetry(() => import('./pages/Booking'));
 
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
 const Forbidden = lazyWithRetry(() => import('./pages/Forbidden'));
@@ -78,11 +74,11 @@ export function AppRouter() {
           />
           <Route
             path="/calendario"
-            element={<RequireAuth><CalendarPlaceholder /></RequireAuth>}
+            element={<RequireAuth><UserCalendar /></RequireAuth>}
           />
           <Route
             path="/agendar"
-            element={<RequireAuth><BookingPlaceholder /></RequireAuth>}
+            element={<RequireAuth><Booking /></RequireAuth>}
           />
 
           {/* Redirects */}
