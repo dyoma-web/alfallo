@@ -27,6 +27,16 @@ const NAV_TRAINER: NavItem[] = [
   { to: '/perfil', icon: 'user', label: 'Perfil' },
 ];
 
+const NAV_ADMIN: NavItem[] = [
+  { to: '/dashboard', icon: 'home', label: 'Inicio' },
+  { to: '/usuarios', icon: 'group', label: 'Usuarios' },
+  { to: '/sedes', icon: 'building', label: 'Sedes' },
+  { to: '/planes', icon: 'shield', label: 'Planes' },
+  { to: '/calendario', icon: 'cal', label: 'Calendario' },
+  { to: '/alertas', icon: 'bell', label: 'Alertas' },
+  { to: '/perfil', icon: 'user', label: 'Perfil' },
+];
+
 const ROLE_LABEL: Record<string, string> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
@@ -41,9 +51,12 @@ interface AppShellDesktopProps {
 export function AppShellDesktop({ children }: AppShellDesktopProps) {
   const user = useSession((s) => s.user);
   const role = useSession((s) => s.role);
-  const items = (role === 'trainer' || role === 'admin' || role === 'super_admin')
-    ? NAV_TRAINER
-    : NAV_CLIENT;
+  const items =
+    role === 'admin' || role === 'super_admin'
+      ? NAV_ADMIN
+      : role === 'trainer'
+      ? NAV_TRAINER
+      : NAV_CLIENT;
 
   return (
     <div className="min-h-screen bg-ink text-fg flex">

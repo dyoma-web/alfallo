@@ -27,6 +27,12 @@ const TrainerCalendar = lazyWithRetry(() => import('./pages/TrainerCalendar'));
 const TrainerUsers = lazyWithRetry(() => import('./pages/TrainerUsers'));
 const UserDetailForTrainer = lazyWithRetry(() => import('./pages/UserDetailForTrainer'));
 
+// Admin
+const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
+const AdminUsers = lazyWithRetry(() => import('./pages/AdminUsers'));
+const AdminSedes = lazyWithRetry(() => import('./pages/AdminSedes'));
+const AdminPlanes = lazyWithRetry(() => import('./pages/AdminPlanes'));
+
 // Otras
 const NotFound = lazyWithRetry(() => import('./pages/NotFound'));
 const Forbidden = lazyWithRetry(() => import('./pages/Forbidden'));
@@ -51,19 +57,25 @@ function RootRedirect() {
 /** Dashboard switch por rol — cada rol tiene su pantalla. */
 function DashboardSwitch() {
   const role = useSession((s) => s.role);
-  if (role === 'trainer' || role === 'admin' || role === 'super_admin') {
-    return <TrainerDashboard />;
-  }
+  if (role === 'admin' || role === 'super_admin') return <AdminDashboard />;
+  if (role === 'trainer') return <TrainerDashboard />;
   return <UserDashboard />;
 }
 
-/** Calendario switch — cliente ve sus bookings, trainer ve los suyos con acciones. */
+/** Calendario switch — cliente ve sus bookings, trainer/admin ve los suyos con acciones. */
 function CalendarSwitch() {
   const role = useSession((s) => s.role);
   if (role === 'trainer' || role === 'admin' || role === 'super_admin') {
     return <TrainerCalendar />;
   }
   return <UserCalendar />;
+}
+
+/** Usuarios switch — admin ve todos, trainer ve los suyos. */
+function UsersSwitch() {
+  const role = useSession((s) => s.role);
+  if (role === 'admin' || role === 'super_admin') return <AdminUsers />;
+  return <TrainerUsers />;
 }
 
 export function AppRouter() {
@@ -117,13 +129,13 @@ export function AppRouter() {
             }
           />
 
-          {/* Solo trainer/admin */}
+          {/* Trainer + Admin */}
           <Route
             path="/usuarios"
             element={
               <RequireAuth>
                 <RequireRole roles={['trainer', 'admin', 'super_admin']}>
-                  <TrainerUsers />
+                  <UsersSwitch />
                 </RequireRole>
               </RequireAuth>
             }
@@ -134,6 +146,28 @@ export function AppRouter() {
               <RequireAuth>
                 <RequireRole roles={['trainer', 'admin', 'super_admin']}>
                   <UserDetailForTrainer />
+                </RequireRole>
+              </RequireAuth>
+            }
+          />
+
+          {/* Solo Admin */}
+          <Route
+            path="/sedes"
+            element={
+              <RequireAuth>
+                <RequireRole roles={['admin', 'super_admin']}>
+                  <AdminSedes />
+                </RequireRole>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/planes"
+            element={
+              <RequireAuth>
+                <RequireRole roles={['admin', 'super_admin']}>
+                  <AdminPlanes />
                 </RequireRole>
               </RequireAuth>
             }
