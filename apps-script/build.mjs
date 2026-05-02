@@ -31,6 +31,7 @@ const ORDER = [
   'options.gs',
   'dashboard.gs',
   'bookings.gs',
+  'trainer.gs',
   'Code.gs',
   'bootstrap.gs',
 ];

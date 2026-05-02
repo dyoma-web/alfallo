@@ -18,14 +18,23 @@ const NAV_CLIENT: NavItem[] = [
   { to: '/perfil', icon: 'user', label: 'Perfil' },
 ];
 
+const NAV_TRAINER: NavItem[] = [
+  { to: '/dashboard', icon: 'home', label: 'Hoy' },
+  { to: '/calendario', icon: 'cal', label: 'Calendario' },
+  { to: '/usuarios', icon: 'group', label: 'Usuarios' },
+  { to: '/alertas', icon: 'bell', label: 'Alertas' },
+  { to: '/perfil', icon: 'user', label: 'Perfil' },
+];
+
 interface AppShellMobileProps {
   children: ReactNode;
 }
 
 export function AppShellMobile({ children }: AppShellMobileProps) {
   const role = useSession((s) => s.role);
-  const items = NAV_CLIENT; // por ahora solo cliente — trainer/admin en Iter 6/7
-  void role;
+  const items = (role === 'trainer' || role === 'admin' || role === 'super_admin')
+    ? NAV_TRAINER
+    : NAV_CLIENT;
 
   return (
     <div className="min-h-screen bg-ink text-fg flex flex-col">

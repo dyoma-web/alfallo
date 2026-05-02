@@ -131,6 +131,26 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'listMyBookings':
       return bookingsListMine(payload, ctx);
 
+    // ── Bookings — acciones del entrenador (Iter 6) ──────────────────────
+    case 'confirmBooking':
+      return bookingsConfirm(payload, ctx);
+
+    case 'rejectBooking':
+      return bookingsReject(payload, ctx);
+
+    case 'registerAttendance':
+      return bookingsRegisterAttendance(payload, ctx);
+
+    // ── Trainer (Iter 6) ─────────────────────────────────────────────────
+    case 'getTrainerDashboard':
+      return trainerGetDashboard(payload, ctx);
+
+    case 'listMyUsers':
+      return trainerListMyUsers(payload, ctx);
+
+    case 'getUserOperationalProfile':
+      return trainerGetUserProfile(payload, ctx);
+
     // ── Options (Iter 5) ─────────────────────────────────────────────────
     case 'getBookingOptions':
       return optionsGetBookingOptions(payload, ctx);

@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-02T03:58:15.202Z                              ║
+ * ║  Built:   2026-05-02T04:36:17.256Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -2244,7 +2244,205 @@ function bookingsSubmit(payload, ctx) {
     auditOk(ctx.userId, 'create_booking', 'agendamiento', bookingId,
       before, JSON.stringify({ estado: updated.estado }), ctx.reqMeta);
 
+    // Alerta al entrenador
+    if (trainer && trainer.id) {
+      alerts_create_({
+        userId: trainer.id,
+        tipo: 'solicitud_pendiente',
+        severidad: 'info',
+        titulo: 'Nueva solicitud de sesión',
+        descripcion: 'Para el ' + new Date(fechaInicio).toLocaleDateString('es-CO',
+          { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'America/Bogota' }),
+        accionUrl: '/calendario',
+        entidadRef: bookingId,
+      });
+    }
+
     return { booking: updated };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Confirmar — solo el entrenador asignado o admin
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookingsConfirm(payload, ctx) {
+  const bookingId = vUuid(vRequired(payload.bookingId, 'bookingId'), 'bookingId');
+  const booking = dbFindById('agendamientos', bookingId);
+  if (!booking) throw _bookingErr_('NOT_FOUND', 'Agendamiento no encontrado');
+
+  if (booking.entrenador_id !== ctx.userId
+      && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _bookingErr_('FORBIDDEN', 'Solo el entrenador asignado puede confirmar');
+  }
+
+  if (['solicitado', 'requiere_autorizacion'].indexOf(String(booking.estado)) === -1) {
+    throw _bookingErr_('INVALID_STATE', 'Solo se confirman agendamientos solicitados');
+  }
+
+  // Si es próxima (≤24h), pasa a pactado; si no, confirmado.
+  const horasParaInicio =
+    (new Date(booking.fecha_inicio_utc).getTime() - Date.now()) / 3600000;
+  const newState = horasParaInicio <= 24 ? 'pactado' : 'confirmado';
+
+  const now = dbNowUtc();
+  const before = JSON.stringify({ estado: booking.estado });
+  const updated = dbUpdateById('agendamientos', bookingId, {
+    estado: newState,
+    autorizado_por: booking.requiere_autorizacion ? ctx.userId : '',
+    autorizado_at_utc: booking.requiere_autorizacion ? now : '',
+    updated_at: now,
+  });
+
+  // Alerta al cliente
+  const fecha = new Date(booking.fecha_inicio_utc);
+  alerts_create_({
+    userId: booking.user_id,
+    tipo: 'sesion_confirmada',
+    severidad: 'info',
+    titulo: 'Tu sesión fue confirmada',
+    descripcion: 'Sesión del ' + fecha.toLocaleDateString('es-CO',
+      { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'America/Bogota' }),
+    accionUrl: '/calendario',
+    entidadRef: bookingId,
+  });
+
+  auditOk(ctx.userId, 'confirm_booking', 'agendamiento', bookingId,
+    before, JSON.stringify({ estado: newState }), ctx.reqMeta);
+
+  return { booking: updated };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Rechazar
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookingsReject(payload, ctx) {
+  const bookingId = vUuid(vRequired(payload.bookingId, 'bookingId'), 'bookingId');
+  const motivo = payload.motivo ? vString(payload.motivo, 'motivo', { max: 500 }) : '';
+
+  const booking = dbFindById('agendamientos', bookingId);
+  if (!booking) throw _bookingErr_('NOT_FOUND', 'Agendamiento no encontrado');
+
+  if (booking.entrenador_id !== ctx.userId
+      && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _bookingErr_('FORBIDDEN', 'Solo el entrenador asignado puede rechazar');
+  }
+
+  if (['solicitado', 'requiere_autorizacion'].indexOf(String(booking.estado)) === -1) {
+    throw _bookingErr_('INVALID_STATE', 'Solo se rechazan solicitados');
+  }
+
+  const now = dbNowUtc();
+  const before = JSON.stringify({ estado: booking.estado });
+  const updated = dbUpdateById('agendamientos', bookingId, {
+    estado: 'rechazado',
+    motivo_cancelacion: motivo,
+    cancelado_por: ctx.userId,
+    cancelado_at_utc: now,
+    updated_at: now,
+  });
+
+  alerts_create_({
+    userId: booking.user_id,
+    tipo: 'sesion_rechazada',
+    severidad: 'warn',
+    titulo: 'Tu sesión fue rechazada',
+    descripcion: motivo
+      ? 'Motivo: ' + motivo
+      : 'Tu entrenador rechazó la solicitud. Puedes pedir más info o agendar otra fecha.',
+    accionUrl: '/calendario',
+    entidadRef: bookingId,
+  });
+
+  auditOk(ctx.userId, 'reject_booking', 'agendamiento', bookingId,
+    before, JSON.stringify({ estado: 'rechazado' }), ctx.reqMeta);
+
+  return { booking: updated };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Registrar asistencia — pasa a completado/no-asistido y consume plan
+// ──────────────────────────────────────────────────────────────────────────
+
+function bookingsRegisterAttendance(payload, ctx) {
+  const bookingId = vUuid(vRequired(payload.bookingId, 'bookingId'), 'bookingId');
+  const presente = vBool(vRequired(payload.presente, 'presente'), 'presente');
+
+  const booking = dbFindById('agendamientos', bookingId);
+  if (!booking) throw _bookingErr_('NOT_FOUND', 'Agendamiento no encontrado');
+
+  if (booking.entrenador_id !== ctx.userId
+      && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _bookingErr_('FORBIDDEN', 'No puedes registrar asistencia en esta sesión');
+  }
+
+  if (['confirmado', 'pactado'].indexOf(String(booking.estado)) === -1) {
+    throw _bookingErr_('INVALID_STATE', 'Solo se registra asistencia en confirmadas/pactadas');
+  }
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    throw _bookingErr_('SLOT_BUSY', 'Sistema ocupado. Reintenta.');
+  }
+
+  try {
+    const now = dbNowUtc();
+    const newState = presente ? 'completado' : 'no-asistido';
+
+    // Asistencia: crear o actualizar (1:1 con booking)
+    const existing = dbFindBy('asistencia', 'agendamiento_id', bookingId);
+    const asistData = {
+      agendamiento_id: bookingId,
+      user_id: booking.user_id,
+      entrenador_id: booking.entrenador_id,
+      presente: presente,
+      llegada_utc: payload.llegadaUtc || (presente ? now : ''),
+      salida_utc: payload.salidaUtc || '',
+      peso: payload.peso != null ? payload.peso : '',
+      frec_card_max: payload.frecCardMax != null ? payload.frecCardMax : '',
+      frec_card_prom: payload.frecCardProm != null ? payload.frecCardProm : '',
+      saturacion: payload.saturacion != null ? payload.saturacion : '',
+      presion_sis: payload.presionSis != null ? payload.presionSis : '',
+      presion_dia: payload.presionDia != null ? payload.presionDia : '',
+      dolor: payload.dolor != null ? payload.dolor : '',
+      energia: payload.energia != null ? payload.energia : '',
+      observaciones: payload.observaciones || '',
+    };
+
+    if (existing) {
+      dbUpdateById('asistencia', existing.id, asistData);
+    } else {
+      dbInsert('asistencia', Object.assign({
+        id: cryptoUuid(),
+        created_at: now,
+        created_by: ctx.userId,
+      }, asistData));
+    }
+
+    // Estado del agendamiento
+    dbUpdateById('agendamientos', bookingId, {
+      estado: newState,
+      updated_at: now,
+    });
+
+    // Si presente y hay plan, consume una sesión del plan
+    if (presente && booking.plan_usuario_id) {
+      const plan = dbFindById('planes_usuario', booking.plan_usuario_id);
+      if (plan) {
+        dbUpdateById('planes_usuario', plan.id, {
+          sesiones_consumidas: Number(plan.sesiones_consumidas) + 1,
+          updated_at: now,
+        });
+      }
+    }
+
+    auditOk(ctx.userId, 'register_attendance', 'agendamiento', bookingId,
+      '', JSON.stringify({ presente: presente, newState: newState }), ctx.reqMeta);
+
+    return { ok: true, presente: presente, estado: newState };
   } finally {
     lock.releaseLock();
   }
@@ -2323,11 +2521,21 @@ function bookingsListMine(payload, ctx) {
        'no-asistido', 'requiere_autorizacion', 'rechazado'];
 
   const userId = ctx.userId;
+  const isTrainer = ctx.role === 'trainer';
+  const isAdmin = ctx.role === 'admin' || ctx.role === 'super_admin';
   const fromTs = fromUtc ? new Date(fromUtc).getTime() : 0;
   const toTs = toUtc ? new Date(toUtc).getTime() : Number.MAX_SAFE_INTEGER;
 
   const bookings = dbListAll('agendamientos', function (b) {
-    if (b.user_id !== userId) return false;
+    // Filtro por rol:
+    //   client → sus bookings (b.user_id === userId)
+    //   trainer → bookings donde es entrenador (b.entrenador_id === userId)
+    //   admin → todos
+    if (!isAdmin) {
+      const matchesUser = b.user_id === userId;
+      const matchesTrainer = isTrainer && b.entrenador_id === userId;
+      if (!matchesUser && !matchesTrainer) return false;
+    }
     if (includeStates.indexOf(String(b.estado)) === -1) return false;
     if (!b.fecha_inicio_utc) return false;
     const t = new Date(b.fecha_inicio_utc).getTime();
@@ -2338,29 +2546,35 @@ function bookingsListMine(payload, ctx) {
     return new Date(a.fecha_inicio_utc) - new Date(b.fecha_inicio_utc);
   });
 
-  // Enriquecer con datos del entrenador y sede
-  const trainerCache = {};
+  // Enriquecer con datos del entrenador, sede y cliente
+  const userCache = {};
   const sedeCache = {};
+
+  function lookupUser(id) {
+    if (!id) return null;
+    if (!(id in userCache)) {
+      const u = dbFindById('usuarios', id);
+      userCache[id] = u
+        ? { id: u.id, nombres: u.nombres, apellidos: u.apellidos, nick: u.nick }
+        : null;
+    }
+    return userCache[id];
+  }
+  function lookupSede(id) {
+    if (!id) return null;
+    if (!(id in sedeCache)) {
+      const s = dbFindById('sedes', id);
+      sedeCache[id] = s ? { id: s.id, nombre: s.nombre, ciudad: s.ciudad } : null;
+    }
+    return sedeCache[id];
+  }
+
   return bookings.map(function (b) {
-    let trainerData = null;
-    if (b.entrenador_id) {
-      if (!(b.entrenador_id in trainerCache)) {
-        const t = dbFindById('usuarios', b.entrenador_id);
-        trainerCache[b.entrenador_id] = t
-          ? { id: t.id, nombres: t.nombres, apellidos: t.apellidos, nick: t.nick }
-          : null;
-      }
-      trainerData = trainerCache[b.entrenador_id];
-    }
-    let sedeData = null;
-    if (b.sede_id) {
-      if (!(b.sede_id in sedeCache)) {
-        const s = dbFindById('sedes', b.sede_id);
-        sedeCache[b.sede_id] = s ? { id: s.id, nombre: s.nombre, ciudad: s.ciudad } : null;
-      }
-      sedeData = sedeCache[b.sede_id];
-    }
-    return Object.assign({}, b, { entrenador: trainerData, sede: sedeData });
+    return Object.assign({}, b, {
+      entrenador: lookupUser(b.entrenador_id),
+      cliente: lookupUser(b.user_id),
+      sede: lookupSede(b.sede_id),
+    });
   });
 }
 
@@ -2441,6 +2655,310 @@ function _bookingErr_(code, message) {
   const e = new Error(message);
   e.code = code;
   return e;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// trainer.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * trainer.gs — Endpoints específicos del entrenador.
+ *
+ * Iteración 6 · Núcleo Entrenador.
+ * Permisos validados en cada función: solo el trainer mismo (o admin)
+ * puede acceder a SUS usuarios y sus datos.
+ */
+
+// ──────────────────────────────────────────────────────────────────────────
+// Dashboard del entrenador — agregado de su día
+// ──────────────────────────────────────────────────────────────────────────
+
+function trainerGetDashboard(_payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const trainerId = ctx.userId;
+
+  const nowDate = new Date();
+  const startOfToday = trainer_startOfDayUtc_(nowDate);
+  const endOfToday = trainer_endOfDayUtc_(nowDate);
+  const sevenDaysFromNow = new Date(nowDate.getTime() + 7 * 86400000);
+  const sevenDaysAgo = new Date(nowDate.getTime() - 7 * 86400000);
+
+  // Sesiones de hoy
+  const sesionesHoy = dbListAll('agendamientos', function (b) {
+    if (b.entrenador_id !== trainerId) return false;
+    if (!b.fecha_inicio_utc) return false;
+    const t = new Date(b.fecha_inicio_utc).getTime();
+    return t >= startOfToday.getTime() && t < endOfToday.getTime()
+      && ['solicitado', 'confirmado', 'pactado', 'completado', 'no-asistido'].indexOf(String(b.estado)) !== -1;
+  });
+  sesionesHoy.sort(function (a, b) {
+    return new Date(a.fecha_inicio_utc) - new Date(b.fecha_inicio_utc);
+  });
+
+  // Solicitudes pendientes (cualquier fecha futura)
+  const solicitudesPendientes = dbListAll('agendamientos', function (b) {
+    if (b.entrenador_id !== trainerId) return false;
+    if (!b.fecha_inicio_utc) return false;
+    if (new Date(b.fecha_inicio_utc) < nowDate) return false;
+    return b.estado === 'solicitado' || b.estado === 'requiere_autorizacion';
+  });
+  solicitudesPendientes.sort(function (a, b) {
+    return new Date(a.fecha_inicio_utc) - new Date(b.fecha_inicio_utc);
+  });
+
+  // Sesiones completadas en últimos 7 días
+  const completadasSemana = dbListAll('agendamientos', function (b) {
+    if (b.entrenador_id !== trainerId) return false;
+    if (b.estado !== 'completado') return false;
+    if (!b.fecha_inicio_utc) return false;
+    const t = new Date(b.fecha_inicio_utc);
+    return t >= sevenDaysAgo && t <= nowDate;
+  });
+
+  // Planes próximos a vencer (≤7 días)
+  const planesPorVencer = dbListAll('planes_usuario', function (p) {
+    if (p.estado !== 'active') return false;
+    if (p.entrenador_id !== trainerId) return false;
+    if (!p.fecha_vencimiento_utc) return false;
+    const fv = new Date(p.fecha_vencimiento_utc);
+    return fv <= sevenDaysFromNow && fv >= nowDate;
+  });
+
+  // Usuarios activos asignados a este trainer
+  const myUsers = dbListAll('usuarios', function (u) {
+    return u.entrenador_asignado_id === trainerId && u.estado === 'active';
+  });
+
+  // Enriquecer sesiones con datos del cliente
+  const enrichedHoy = sesionesHoy.map(function (b) {
+    const u = dbFindById('usuarios', b.user_id);
+    return {
+      id: b.id,
+      fechaInicioUtc: b.fecha_inicio_utc,
+      duracionMin: Number(b.duracion_min) || 60,
+      tipo: b.tipo,
+      estado: b.estado,
+      cliente: u ? { id: u.id, nombres: u.nombres, apellidos: u.apellidos, nick: u.nick } : null,
+    };
+  });
+  const enrichedPendientes = solicitudesPendientes.slice(0, 10).map(function (b) {
+    const u = dbFindById('usuarios', b.user_id);
+    return {
+      id: b.id,
+      fechaInicioUtc: b.fecha_inicio_utc,
+      duracionMin: Number(b.duracion_min) || 60,
+      estado: b.estado,
+      requiereAutorizacion: b.requiere_autorizacion === true || b.requiere_autorizacion === 'TRUE',
+      cliente: u ? { id: u.id, nombres: u.nombres, apellidos: u.apellidos, nick: u.nick } : null,
+    };
+  });
+  const enrichedPlanesVence = planesPorVencer.slice(0, 10).map(function (p) {
+    const u = dbFindById('usuarios', p.user_id);
+    const dias = Math.ceil((new Date(p.fecha_vencimiento_utc) - nowDate) / 86400000);
+    return {
+      id: p.id,
+      fechaVencimientoUtc: p.fecha_vencimiento_utc,
+      diasRestantes: dias,
+      sesionesRestantes: Math.max(0, Number(p.sesiones_totales) - Number(p.sesiones_consumidas)),
+      cliente: u ? { id: u.id, nombres: u.nombres, apellidos: u.apellidos, nick: u.nick } : null,
+    };
+  });
+
+  return {
+    hoyKpi: {
+      sesionesHoy: sesionesHoy.length,
+      solicitudesPendientes: solicitudesPendientes.length,
+      completadasSemana: completadasSemana.length,
+      usuariosActivos: myUsers.length,
+    },
+    sesionesHoy: enrichedHoy,
+    solicitudesPendientes: enrichedPendientes,
+    planesPorVencer: enrichedPlanesVence,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// listMyUsers — lista de usuarios asignados al trainer
+// ──────────────────────────────────────────────────────────────────────────
+
+function trainerListMyUsers(_payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const trainerId = ctx.userId;
+
+  const users = dbListAll('usuarios', function (u) {
+    return u.entrenador_asignado_id === trainerId && u.rol === 'client';
+  });
+
+  return users.map(function (u) {
+    // Plan activo
+    const planes = dbListAll('planes_usuario', function (p) {
+      return p.user_id === u.id && p.estado === 'active';
+    });
+    let planActivo = null;
+    if (planes.length > 0) {
+      planes.sort(function (a, b) {
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
+      const p = planes[0];
+      const cat = dbFindById('planes_catalogo', p.plan_catalogo_id);
+      const dias = Math.ceil((new Date(p.fecha_vencimiento_utc) - new Date()) / 86400000);
+      planActivo = {
+        nombre: cat ? cat.nombre : 'Plan',
+        sesionesRestantes: Math.max(0, Number(p.sesiones_totales) - Number(p.sesiones_consumidas)),
+        sesionesTotales: Number(p.sesiones_totales),
+        fechaVencimientoUtc: p.fecha_vencimiento_utc,
+        diasRestantes: dias,
+        estadoVisual: dias < 0 ? 'plan-vencido' : dias <= 7 ? 'plan-vence' : 'plan-activo',
+      };
+    }
+
+    // Próxima sesión
+    const futuras = dbListAll('agendamientos', function (b) {
+      if (b.user_id !== u.id) return false;
+      if (b.entrenador_id !== trainerId) return false;
+      if (!b.fecha_inicio_utc) return false;
+      if (new Date(b.fecha_inicio_utc) < new Date()) return false;
+      return ['solicitado', 'confirmado', 'pactado', 'requiere_autorizacion'].indexOf(String(b.estado)) !== -1;
+    });
+    futuras.sort(function (a, b) {
+      return new Date(a.fecha_inicio_utc) - new Date(b.fecha_inicio_utc);
+    });
+
+    return {
+      id: u.id,
+      nombres: u.nombres,
+      apellidos: u.apellidos,
+      nick: u.nick,
+      foto_url: u.foto_url,
+      estado: u.estado,
+      planActivo: planActivo,
+      proximaSesionUtc: futuras.length > 0 ? futuras[0].fecha_inicio_utc : null,
+      proximaSesionEstado: futuras.length > 0 ? futuras[0].estado : null,
+    };
+  }).sort(function (a, b) {
+    // Orden: con próxima sesión asc, luego por nombre
+    if (a.proximaSesionUtc && b.proximaSesionUtc) {
+      return new Date(a.proximaSesionUtc) - new Date(b.proximaSesionUtc);
+    }
+    if (a.proximaSesionUtc) return -1;
+    if (b.proximaSesionUtc) return 1;
+    return String(a.nombres).localeCompare(b.nombres);
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// getUserOperationalProfile — vista del entrenador sobre uno de sus clientes
+// ──────────────────────────────────────────────────────────────────────────
+
+function trainerGetUserProfile(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const userId = vUuid(vRequired(payload.userId, 'userId'), 'userId');
+
+  const user = dbFindById('usuarios', userId);
+  if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
+
+  // Si es trainer, solo puede ver sus usuarios asignados
+  if (ctx.role === 'trainer' && user.entrenador_asignado_id !== ctx.userId) {
+    throw _err('FORBIDDEN', 'No es tu usuario');
+  }
+
+  // Planes
+  const planes = dbListAll('planes_usuario', function (p) {
+    return p.user_id === userId;
+  });
+  planes.sort(function (a, b) {
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+  const planesShape = planes.map(function (p) {
+    const cat = dbFindById('planes_catalogo', p.plan_catalogo_id);
+    return {
+      id: p.id,
+      nombre: cat ? cat.nombre : 'Plan',
+      tipo: cat ? cat.tipo : '',
+      sesionesTotales: Number(p.sesiones_totales),
+      sesionesConsumidas: Number(p.sesiones_consumidas),
+      sesionesRestantes: Math.max(0, Number(p.sesiones_totales) - Number(p.sesiones_consumidas)),
+      fechaCompraUtc: p.fecha_compra_utc,
+      fechaVencimientoUtc: p.fecha_vencimiento_utc,
+      estado: p.estado,
+    };
+  });
+
+  // Asistencia reciente (últimas 10)
+  const asistencias = dbListAll('asistencia', function (a) {
+    return a.user_id === userId;
+  });
+  asistencias.sort(function (a, b) {
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+  const asistenciasShape = asistencias.slice(0, 10).map(function (a) {
+    return {
+      id: a.id,
+      agendamientoId: a.agendamiento_id,
+      presente: a.presente === true || a.presente === 'TRUE',
+      peso: a.peso,
+      observaciones: a.observaciones,
+      createdAt: a.created_at,
+    };
+  });
+
+  // Bookings: próximos y recientes
+  const allBookings = dbListAll('agendamientos', function (b) {
+    return b.user_id === userId && b.fecha_inicio_utc;
+  });
+  const now = new Date();
+  const proximos = allBookings.filter(function (b) {
+    return new Date(b.fecha_inicio_utc) >= now
+      && ['solicitado', 'confirmado', 'pactado', 'requiere_autorizacion'].indexOf(String(b.estado)) !== -1;
+  }).sort(function (a, b) {
+    return new Date(a.fecha_inicio_utc) - new Date(b.fecha_inicio_utc);
+  }).slice(0, 5);
+  const recientes = allBookings.filter(function (b) {
+    return new Date(b.fecha_inicio_utc) < now;
+  }).sort(function (a, b) {
+    return new Date(b.fecha_inicio_utc) - new Date(a.fecha_inicio_utc);
+  }).slice(0, 10);
+
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      nombres: user.nombres,
+      apellidos: user.apellidos,
+      nick: user.nick,
+      celular: user.celular,
+      foto_url: user.foto_url,
+      estado: user.estado,
+      privacidad_fotos: user.privacidad_fotos,
+    },
+    planes: planesShape,
+    asistencias: asistenciasShape,
+    proximos: proximos,
+    recientes: recientes,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────────────────────
+
+function trainer_startOfDayUtc_(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function trainer_endOfDayUtc_(date) {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
 }
 
 
@@ -2580,6 +3098,26 @@ function _handleAction(action, rawPayload, token, reqMeta) {
 
     case 'listMyBookings':
       return bookingsListMine(payload, ctx);
+
+    // ── Bookings — acciones del entrenador (Iter 6) ──────────────────────
+    case 'confirmBooking':
+      return bookingsConfirm(payload, ctx);
+
+    case 'rejectBooking':
+      return bookingsReject(payload, ctx);
+
+    case 'registerAttendance':
+      return bookingsRegisterAttendance(payload, ctx);
+
+    // ── Trainer (Iter 6) ─────────────────────────────────────────────────
+    case 'getTrainerDashboard':
+      return trainerGetDashboard(payload, ctx);
+
+    case 'listMyUsers':
+      return trainerListMyUsers(payload, ctx);
+
+    case 'getUserOperationalProfile':
+      return trainerGetUserProfile(payload, ctx);
 
     // ── Options (Iter 5) ─────────────────────────────────────────────────
     case 'getBookingOptions':
