@@ -24,9 +24,11 @@ function gruposCreate(payload, ctx) {
 
   const nombre = vString(vRequired(payload.nombre, 'nombre'), 'nombre', { min: 2, max: 80 });
   const tipo = vEnum(payload.tipo || 'semipersonalizado', 'tipo', GROUP_TIPOS);
+  // capacidadMax opcional: 0 o vacío = sin límite. Si viene > 0 limita la
+  // cantidad de miembros que se pueden agregar.
   const capacidadMax = payload.capacidadMax
-    ? vNumber(payload.capacidadMax, 'capacidadMax', { min: 1, max: 200, int: true })
-    : (tipo === 'semipersonalizado' ? 5 : 15);
+    ? Math.max(0, Number(payload.capacidadMax) | 0)
+    : 0;
   const color = grupos_validateColor_(payload.color || '#C8FF3D');
 
   // El trainer dueño es ctx.userId si rol=trainer; admin puede pasar entrenadorId
@@ -180,12 +182,15 @@ function gruposAddMember(payload, ctx) {
     return { already: true, id: existing[0].id };
   }
 
-  // Verificar capacidad
-  const activeCount = dbListAll('grupos_miembros', function (m) {
-    return m.grupo_id === grupoId && m.estado === 'active';
-  }).length;
-  if (activeCount >= Number(grupo.capacidad_max)) {
-    throw _err('GROUP_FULL', 'El grupo alcanzó su capacidad máxima');
+  // Verificar capacidad SOLO si está configurada (0 o vacío = sin límite)
+  const cap = Number(grupo.capacidad_max) || 0;
+  if (cap > 0) {
+    const activeCount = dbListAll('grupos_miembros', function (m) {
+      return m.grupo_id === grupoId && m.estado === 'active';
+    }).length;
+    if (activeCount >= cap) {
+      throw _err('GROUP_FULL', 'El grupo alcanzó su capacidad máxima');
+    }
   }
 
   const id = cryptoUuid();

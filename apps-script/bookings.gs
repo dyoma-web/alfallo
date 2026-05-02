@@ -89,8 +89,17 @@ function bookingsSubmit(payload, ctx) {
       throw _bookingErr_('TRAINER_NOT_AVAILABLE', 'El entrenador no está disponible');
     }
 
-    // Cargar perfil del trainer (necesario para caps de cupos y visibilidad)
+    // Cargar perfil del trainer (para visibilidad)
     const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+
+    // Resolver el plan_catalogo del booking (para leer caps definidos en el plan)
+    let planCatalogo = null;
+    if (planUsuarioId) {
+      const planUsr = dbFindById('planes_usuario', planUsuarioId);
+      if (planUsr && planUsr.plan_catalogo_id) {
+        planCatalogo = dbFindById('planes_catalogo', planUsr.plan_catalogo_id);
+      }
+    }
 
     // Cap de cupos por tipo de plan en la franja horaria
     const sameSlotBookings = dbListAll('agendamientos', function (b) {
@@ -100,10 +109,8 @@ function bookingsSubmit(payload, ctx) {
       return bookings_overlaps_(b.fecha_inicio_utc, Number(b.duracion_min) || 60, fechaInicio, duracionMin);
     });
 
-    const cap = bookings_getCap_(trainerProfile, tipo);
-    const stricts = trainerProfile
-      ? (trainerProfile.cupos_estrictos === true || trainerProfile.cupos_estrictos === 'TRUE')
-      : true;
+    const cap = bookings_getCap_(planCatalogo, tipo);
+    const stricts = bookings_getCapStrict_(planCatalogo, tipo);
     const cupoLleno = sameSlotBookings.length >= cap;
 
     let requireAuth = false;
@@ -644,11 +651,19 @@ function bookingsGetSlotCapacity(payload, _ctx) {
     ? vNumber(payload.duracionMin, 'duracionMin', { min: 15, max: 240, int: true })
     : 60;
 
-  const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
-  const cap = bookings_getCap_(trainerProfile, tipo);
-  const stricts = trainerProfile
-    ? (trainerProfile.cupos_estrictos === true || trainerProfile.cupos_estrictos === 'TRUE')
-    : true;
+  // Resolver plan_catalogo si el frontend lo pasó
+  let planCatalogo = null;
+  if (payload.planUsuarioId) {
+    const planUsr = dbFindById('planes_usuario', payload.planUsuarioId);
+    if (planUsr && planUsr.plan_catalogo_id) {
+      planCatalogo = dbFindById('planes_catalogo', planUsr.plan_catalogo_id);
+    }
+  } else if (payload.planCatalogoId) {
+    planCatalogo = dbFindById('planes_catalogo', payload.planCatalogoId);
+  }
+
+  const cap = bookings_getCap_(planCatalogo, tipo);
+  const stricts = bookings_getCapStrict_(planCatalogo, tipo);
 
   const sameSlot = dbListAll('agendamientos', function (b) {
     if (b.entrenador_id !== trainerId) return false;

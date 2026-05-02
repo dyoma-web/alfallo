@@ -91,6 +91,7 @@ const SCHEMA = {
   planes_catalogo: [
     'id', 'nombre', 'descripcion', 'tipo', 'num_sesiones',
     'precio', 'moneda', 'vigencia_dias', 'entrenador_id', 'sede_id',
+    'cupos_max_simultaneos', 'cupos_estricto',
     'estado', 'created_at', 'updated_at', 'created_by'
   ],
 

@@ -85,7 +85,7 @@ export function GrupoFormModal({ open, initialGrupo, onClose, onSaved }: Props) 
       nombre: '',
       descripcion: '',
       tipo: 'semipersonalizado',
-      capacidadMax: '5',
+      capacidadMax: '',
       color: COLOR_PALETTE[0],
       sedeId: '',
       entrenadorId: '',
@@ -101,7 +101,9 @@ export function GrupoFormModal({ open, initialGrupo, onClose, onSaved }: Props) 
         nombre: initialGrupo?.nombre ?? '',
         descripcion: initialGrupo?.descripcion ?? '',
         tipo: initialGrupo?.tipo ?? 'semipersonalizado',
-        capacidadMax: String(initialGrupo?.capacidad_max ?? '5'),
+        capacidadMax: initialGrupo?.capacidad_max
+          ? String(initialGrupo.capacidad_max)
+          : '',
         color: initialGrupo?.color ?? COLOR_PALETTE[0],
         sedeId: initialGrupo?.sede_id ?? '',
         entrenadorId: initialGrupo?.entrenador_id ?? '',
@@ -112,12 +114,8 @@ export function GrupoFormModal({ open, initialGrupo, onClose, onSaved }: Props) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialGrupo]);
 
-  // Auto-ajusta capacidad cuando cambia el tipo (solo en creación, no edit)
-  useEffect(() => {
-    if (!isEdit && open && watchedTipo) {
-      setValue('capacidadMax', watchedTipo === 'semipersonalizado' ? '5' : '15');
-    }
-  }, [watchedTipo, isEdit, open, setValue]);
+  // capacidad opcional — el usuario decide si poner un límite o dejar sin
+  void watchedTipo; void setValue;
 
   async function onSubmit(values: GrupoForm) {
     const payload: Record<string, unknown> = {
@@ -186,12 +184,14 @@ export function GrupoFormModal({ open, initialGrupo, onClose, onSaved }: Props) 
             </select>
           </div>
           <Field
-            label="Capacidad máxima"
+            label="Capacidad máxima (opcional)"
             type="number"
-            min="1"
+            min="0"
             max="200"
+            placeholder="Sin límite"
+            hint="Vacío = ilimitado. Solo limita cuántos miembros caben en el grupo."
             error={errors.capacidadMax?.message}
-            {...register('capacidadMax', { required: true })}
+            {...register('capacidadMax')}
           />
         </div>
 

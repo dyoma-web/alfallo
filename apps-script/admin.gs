@@ -638,6 +638,12 @@ function adminCreatePlanCatalogo(payload, ctx) {
 
   const id = cryptoUuid();
   const now = dbNowUtc();
+
+  // Default cupos por tipo si no vienen
+  let defaultMaxSimultaneos = 1;
+  if (tipo === 'semipersonalizado') defaultMaxSimultaneos = 5;
+  if (tipo === 'grupal') defaultMaxSimultaneos = 15;
+
   const plan = {
     id: id,
     nombre: nombre,
@@ -651,6 +657,12 @@ function adminCreatePlanCatalogo(payload, ctx) {
       ? vUuid(payload.entrenadorId, 'entrenadorId')
       : '',
     sede_id: payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '',
+    cupos_max_simultaneos: payload.cuposMaxSimultaneos != null
+      ? Math.max(1, Number(payload.cuposMaxSimultaneos))
+      : defaultMaxSimultaneos,
+    cupos_estricto: payload.cuposEstricto != null
+      ? Boolean(payload.cuposEstricto)
+      : (tipo === 'personalizado'),
     estado: 'active',
     created_at: now,
     updated_at: now,
@@ -677,6 +689,12 @@ function adminUpdatePlanCatalogo(payload, ctx) {
   if ('vigenciaDias' in payload) patch.vigencia_dias = Number(payload.vigenciaDias);
   if ('moneda' in payload) patch.moneda = payload.moneda;
   if ('estado' in payload) patch.estado = payload.estado;
+  if ('cuposMaxSimultaneos' in payload) {
+    patch.cupos_max_simultaneos = Math.max(1, Number(payload.cuposMaxSimultaneos));
+  }
+  if ('cuposEstricto' in payload) {
+    patch.cupos_estricto = Boolean(payload.cuposEstricto);
+  }
   patch.updated_at = dbNowUtc();
 
   const updated = dbUpdateById('planes_catalogo', planId, patch);

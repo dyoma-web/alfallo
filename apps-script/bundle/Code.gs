@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-02T21:19:10.693Z                              ║
+ * ║  Built:   2026-05-02T21:39:19.280Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -109,6 +109,7 @@ const SCHEMA = {
   planes_catalogo: [
     'id', 'nombre', 'descripcion', 'tipo', 'num_sesiones',
     'precio', 'moneda', 'vigencia_dias', 'entrenador_id', 'sede_id',
+    'cupos_max_simultaneos', 'cupos_estricto',
     'estado', 'created_at', 'updated_at', 'created_by'
   ],
 
@@ -2212,8 +2213,17 @@ function bookingsSubmit(payload, ctx) {
       throw _bookingErr_('TRAINER_NOT_AVAILABLE', 'El entrenador no está disponible');
     }
 
-    // Cargar perfil del trainer (necesario para caps de cupos y visibilidad)
+    // Cargar perfil del trainer (para visibilidad)
     const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+
+    // Resolver el plan_catalogo del booking (para leer caps definidos en el plan)
+    let planCatalogo = null;
+    if (planUsuarioId) {
+      const planUsr = dbFindById('planes_usuario', planUsuarioId);
+      if (planUsr && planUsr.plan_catalogo_id) {
+        planCatalogo = dbFindById('planes_catalogo', planUsr.plan_catalogo_id);
+      }
+    }
 
     // Cap de cupos por tipo de plan en la franja horaria
     const sameSlotBookings = dbListAll('agendamientos', function (b) {
@@ -2223,10 +2233,8 @@ function bookingsSubmit(payload, ctx) {
       return bookings_overlaps_(b.fecha_inicio_utc, Number(b.duracion_min) || 60, fechaInicio, duracionMin);
     });
 
-    const cap = bookings_getCap_(trainerProfile, tipo);
-    const stricts = trainerProfile
-      ? (trainerProfile.cupos_estrictos === true || trainerProfile.cupos_estrictos === 'TRUE')
-      : true;
+    const cap = bookings_getCap_(planCatalogo, tipo);
+    const stricts = bookings_getCapStrict_(planCatalogo, tipo);
     const cupoLleno = sameSlotBookings.length >= cap;
 
     let requireAuth = false;
@@ -2767,11 +2775,19 @@ function bookingsGetSlotCapacity(payload, _ctx) {
     ? vNumber(payload.duracionMin, 'duracionMin', { min: 15, max: 240, int: true })
     : 60;
 
-  const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
-  const cap = bookings_getCap_(trainerProfile, tipo);
-  const stricts = trainerProfile
-    ? (trainerProfile.cupos_estrictos === true || trainerProfile.cupos_estrictos === 'TRUE')
-    : true;
+  // Resolver plan_catalogo si el frontend lo pasó
+  let planCatalogo = null;
+  if (payload.planUsuarioId) {
+    const planUsr = dbFindById('planes_usuario', payload.planUsuarioId);
+    if (planUsr && planUsr.plan_catalogo_id) {
+      planCatalogo = dbFindById('planes_catalogo', planUsr.plan_catalogo_id);
+    }
+  } else if (payload.planCatalogoId) {
+    planCatalogo = dbFindById('planes_catalogo', payload.planCatalogoId);
+  }
+
+  const cap = bookings_getCap_(planCatalogo, tipo);
+  const stricts = bookings_getCapStrict_(planCatalogo, tipo);
 
   const sameSlot = dbListAll('agendamientos', function (b) {
     if (b.entrenador_id !== trainerId) return false;
@@ -3769,6 +3785,12 @@ function adminCreatePlanCatalogo(payload, ctx) {
 
   const id = cryptoUuid();
   const now = dbNowUtc();
+
+  // Default cupos por tipo si no vienen
+  let defaultMaxSimultaneos = 1;
+  if (tipo === 'semipersonalizado') defaultMaxSimultaneos = 5;
+  if (tipo === 'grupal') defaultMaxSimultaneos = 15;
+
   const plan = {
     id: id,
     nombre: nombre,
@@ -3782,6 +3804,12 @@ function adminCreatePlanCatalogo(payload, ctx) {
       ? vUuid(payload.entrenadorId, 'entrenadorId')
       : '',
     sede_id: payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '',
+    cupos_max_simultaneos: payload.cuposMaxSimultaneos != null
+      ? Math.max(1, Number(payload.cuposMaxSimultaneos))
+      : defaultMaxSimultaneos,
+    cupos_estricto: payload.cuposEstricto != null
+      ? Boolean(payload.cuposEstricto)
+      : (tipo === 'personalizado'),
     estado: 'active',
     created_at: now,
     updated_at: now,
@@ -3808,6 +3836,12 @@ function adminUpdatePlanCatalogo(payload, ctx) {
   if ('vigenciaDias' in payload) patch.vigencia_dias = Number(payload.vigenciaDias);
   if ('moneda' in payload) patch.moneda = payload.moneda;
   if ('estado' in payload) patch.estado = payload.estado;
+  if ('cuposMaxSimultaneos' in payload) {
+    patch.cupos_max_simultaneos = Math.max(1, Number(payload.cuposMaxSimultaneos));
+  }
+  if ('cuposEstricto' in payload) {
+    patch.cupos_estricto = Boolean(payload.cuposEstricto);
+  }
   patch.updated_at = dbNowUtc();
 
   const updated = dbUpdateById('planes_catalogo', planId, patch);
@@ -4751,9 +4785,11 @@ function gruposCreate(payload, ctx) {
 
   const nombre = vString(vRequired(payload.nombre, 'nombre'), 'nombre', { min: 2, max: 80 });
   const tipo = vEnum(payload.tipo || 'semipersonalizado', 'tipo', GROUP_TIPOS);
+  // capacidadMax opcional: 0 o vacío = sin límite. Si viene > 0 limita la
+  // cantidad de miembros que se pueden agregar.
   const capacidadMax = payload.capacidadMax
-    ? vNumber(payload.capacidadMax, 'capacidadMax', { min: 1, max: 200, int: true })
-    : (tipo === 'semipersonalizado' ? 5 : 15);
+    ? Math.max(0, Number(payload.capacidadMax) | 0)
+    : 0;
   const color = grupos_validateColor_(payload.color || '#C8FF3D');
 
   // El trainer dueño es ctx.userId si rol=trainer; admin puede pasar entrenadorId
@@ -4907,12 +4943,15 @@ function gruposAddMember(payload, ctx) {
     return { already: true, id: existing[0].id };
   }
 
-  // Verificar capacidad
-  const activeCount = dbListAll('grupos_miembros', function (m) {
-    return m.grupo_id === grupoId && m.estado === 'active';
-  }).length;
-  if (activeCount >= Number(grupo.capacidad_max)) {
-    throw _err('GROUP_FULL', 'El grupo alcanzó su capacidad máxima');
+  // Verificar capacidad SOLO si está configurada (0 o vacío = sin límite)
+  const cap = Number(grupo.capacidad_max) || 0;
+  if (cap > 0) {
+    const activeCount = dbListAll('grupos_miembros', function (m) {
+      return m.grupo_id === grupoId && m.estado === 'active';
+    }).length;
+    if (activeCount >= cap) {
+      throw _err('GROUP_FULL', 'El grupo alcanzó su capacidad máxima');
+    }
   }
 
   const id = cryptoUuid();

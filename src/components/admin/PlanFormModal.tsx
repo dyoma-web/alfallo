@@ -16,6 +16,8 @@ interface PlanCatalogo {
   vigencia_dias: number | string;
   entrenador_id?: string;
   sede_id?: string;
+  cupos_max_simultaneos?: number | string;
+  cupos_estricto?: boolean | string;
   estado?: string;
 }
 
@@ -29,6 +31,8 @@ interface PlanForm {
   vigenciaDias: string;
   entrenadorId: string;
   sedeId: string;
+  cuposMaxSimultaneos: string;
+  cuposEstricto: boolean;
 }
 
 interface Props {
@@ -76,21 +80,31 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
       vigenciaDias: '60',
       entrenadorId: '',
       sedeId: '',
+      cuposMaxSimultaneos: '1',
+      cuposEstricto: true,
     },
   });
 
   useEffect(() => {
     if (open) {
+      const tipoVal = ((initialPlan?.tipo as PlanForm['tipo']) ?? 'personalizado');
+      const defaultCap = tipoVal === 'semipersonalizado' ? '5'
+        : tipoVal === 'grupal' ? '15' : '1';
       reset({
         nombre: initialPlan?.nombre ?? '',
         descripcion: initialPlan?.descripcion ?? '',
-        tipo: ((initialPlan?.tipo as PlanForm['tipo']) ?? 'personalizado'),
+        tipo: tipoVal,
         numSesiones: initialPlan?.num_sesiones ? String(initialPlan.num_sesiones) : '10',
         precio: initialPlan?.precio ? String(initialPlan.precio) : '',
         moneda: initialPlan?.moneda ?? 'COP',
         vigenciaDias: initialPlan?.vigencia_dias ? String(initialPlan.vigencia_dias) : '60',
         entrenadorId: initialPlan?.entrenador_id ?? '',
         sedeId: initialPlan?.sede_id ?? '',
+        cuposMaxSimultaneos: initialPlan?.cupos_max_simultaneos
+          ? String(initialPlan.cupos_max_simultaneos) : defaultCap,
+        cuposEstricto: initialPlan?.cupos_estricto != null
+          ? (initialPlan.cupos_estricto === true || initialPlan.cupos_estricto === 'TRUE')
+          : (tipoVal === 'personalizado'),
       });
       create.reset();
       update.reset();
@@ -109,6 +123,8 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
       vigenciaDias: Number(values.vigenciaDias),
       entrenadorId: values.entrenadorId || undefined,
       sedeId: values.sedeId || undefined,
+      cuposMaxSimultaneos: Math.max(1, Number(values.cuposMaxSimultaneos) || 1),
+      cuposEstricto: values.cuposEstricto,
     };
     try {
       if (isEdit && initialPlan) {
@@ -203,6 +219,41 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
             <option value="EUR">EUR — Euro</option>
             <option value="MXN">MXN — Peso mexicano</option>
           </select>
+        </div>
+
+        {/* Cupos por franja: cuántos clientes pueden agendar al mismo tiempo */}
+        <div className="pt-3 border-t border-line space-y-3">
+          <div>
+            <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
+              Cupos por franja horaria
+            </div>
+            <p className="text-[12px] text-fg-3 mt-1">
+              Cuántos clientes con este plan pueden agendar al mismo tiempo con el mismo entrenador.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field
+              label="Máximo simultáneos"
+              type="number"
+              min="1"
+              hint="1 para personalizado, 5 para semi, 15 para grupal (típicos)"
+              {...register('cuposMaxSimultaneos', { required: true })}
+            />
+            <label className="flex items-start gap-3 cursor-pointer mt-7 md:mt-0">
+              <input
+                type="checkbox"
+                {...register('cuposEstricto')}
+                className="mt-0.5 w-4 h-4 rounded accent-accent flex-none cursor-pointer"
+              />
+              <div>
+                <div className="text-[13px] font-medium text-fg-2">Cupo estricto</div>
+                <div className="text-[12px] text-fg-3 leading-snug">
+                  Si está activo, no se permiten más solicitudes una vez lleno. Si está apagado,
+                  el cliente puede pedir agendar y el entrenador decide.
+                </div>
+              </div>
+            </label>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

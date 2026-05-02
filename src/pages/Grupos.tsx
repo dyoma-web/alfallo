@@ -157,7 +157,9 @@ function GrupoRow({
               <p className="text-fg-2 text-[12px] mt-0.5 line-clamp-1">{grupo.descripcion}</p>
             )}
             <div className="text-fg-3 text-[12px] mt-1">
-              {grupo.miembrosCount}/{grupo.capacidad_max} miembros
+              {Number(grupo.capacidad_max) > 0
+                ? `${grupo.miembrosCount}/${grupo.capacidad_max} miembros`
+                : `${grupo.miembrosCount} miembro${grupo.miembrosCount === 1 ? '' : 's'} · sin límite`}
               {grupo.entrenador && (
                 <span> · {grupo.entrenador.nombres} {grupo.entrenador.apellidos}</span>
               )}
@@ -208,9 +210,11 @@ function ManageMembersModal({
     {},
     { enabled: !isAdmin }
   );
+  // Sin filtro de estado: incluye pending/active. Los pending también pueden
+  // pertenecer a un grupo aunque todavía no hayan activado su cuenta.
   const { data: allClients } = useApiQuery<UserOption[]>(
     'adminListUsers',
-    { rol: 'client', estado: 'active' },
+    { rol: 'client' },
     { enabled: isAdmin }
   );
 
@@ -246,7 +250,7 @@ function ManageMembersModal({
     <Modal open onClose={onClose} title={`Miembros · ${grupo.nombre}`} size="lg">
       <div className="px-5 py-5 space-y-4">
         {/* Add member */}
-        {(members?.length ?? 0) < Number(grupo.capacidad_max) && (
+        {(Number(grupo.capacidad_max) === 0 || (members?.length ?? 0) < Number(grupo.capacidad_max)) && (
           <div className="bg-surface-2 border border-line rounded-xl p-3">
             <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
               Agregar cliente
@@ -281,7 +285,7 @@ function ManageMembersModal({
         {/* Members list */}
         <div>
           <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
-            Miembros ({members?.length ?? 0}/{grupo.capacidad_max})
+            Miembros ({members?.length ?? 0}{Number(grupo.capacidad_max) > 0 ? `/${grupo.capacidad_max}` : ''})
           </div>
           {!members || members.length === 0 ? (
             <p className="text-fg-2 text-sm py-3 text-center">Sin miembros todavía.</p>
