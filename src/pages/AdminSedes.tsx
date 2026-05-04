@@ -8,6 +8,8 @@ import { StatusBadge } from '../components/StatusBadge';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { SedeFormModal } from '../components/admin/SedeFormModal';
 import { DetailModal, type DetailSection } from '../components/DetailModal';
+import { useConfirmDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 interface Sede {
   id: string;
@@ -37,6 +39,8 @@ export default function AdminSedes() {
 
   const { data, error, loading, refetch } = useApiQuery<Sede[]>('adminListSedes');
   const update = useApiMutation('adminUpdateSede');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
 
   useEffect(() => {
     if (searchParams.get('nuevo') === '1') {
@@ -49,18 +53,38 @@ export default function AdminSedes() {
   }, [searchParams]);
 
   async function handleArchive(id: string) {
-    if (!window.confirm('¿Archivar esta sede? Los entrenadores y usuarios quedan asignados al historial.')) return;
+    const ok = await confirm({
+      title: 'Archivar sede',
+      message: 'Los entrenadores y usuarios quedan asignados al historial. La sede dejará de aparecer en agendamiento.',
+      confirmLabel: 'Archivar',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await update.mutate({ sedeId: id, estado: 'archived' });
+      toast({ title: 'Sede archivada', tone: 'success' });
       void refetch();
-    } catch { /* error */ }
+    } catch (e) {
+      toast({
+        title: 'No se pudo archivar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
   }
 
   async function handleReactivate(id: string) {
     try {
       await update.mutate({ sedeId: id, estado: 'active' });
+      toast({ title: 'Sede reactivada', tone: 'success' });
       void refetch();
-    } catch { /* error */ }
+    } catch (e) {
+      toast({
+        title: 'No se pudo reactivar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
   }
 
   return (
@@ -133,6 +157,8 @@ export default function AdminSedes() {
         onClose={() => setViewing(null)}
         onEdit={() => { setEditingSede(viewing); setViewing(null); }}
       />
+
+      {confirmDialog}
     </AppShell>
   );
 }

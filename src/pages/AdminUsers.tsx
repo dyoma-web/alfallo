@@ -9,6 +9,8 @@ import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { UserFormModal } from '../components/admin/UserFormModal';
 import { TrainerProfileModal } from '../components/admin/TrainerProfileModal';
 import { DetailModal, type DetailSection } from '../components/DetailModal';
+import { useConfirmDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 import { formatRelative, formatShortDate } from '../lib/datetime';
 
 interface SedeRef {
@@ -79,6 +81,8 @@ export default function AdminUsers() {
   const reactivate = useApiMutation('adminReactivateUser');
   const resend = useApiMutation<{ activationLink: string }>('adminResendActivation');
   const [resentLink, setResentLink] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
 
   const { data, error, loading, refetch } = useApiQuery<UserListItem[]>(
     'adminListUsers',
@@ -108,21 +112,37 @@ export default function AdminUsers() {
   }, [data, search]);
 
   async function handleSuspend(id: string) {
-    if (!window.confirm('¿Suspender este usuario? Se cerrarán sus sesiones activas.')) return;
+    const ok = await confirm({
+      title: 'Suspender usuario',
+      message: 'Se cerrarán sus sesiones activas y no podrá iniciar sesión hasta reactivarlo.',
+      confirmLabel: 'Suspender',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await suspend.mutate({ userId: id });
+      toast({ title: 'Usuario suspendido', tone: 'success' });
       void refetch();
-    } catch {
-      /* error en hook */
+    } catch (e) {
+      toast({
+        title: 'No se pudo suspender',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
     }
   }
 
   async function handleReactivate(id: string) {
     try {
       await reactivate.mutate({ userId: id });
+      toast({ title: 'Usuario reactivado', tone: 'success' });
       void refetch();
-    } catch {
-      /* error en hook */
+    } catch (e) {
+      toast({
+        title: 'No se pudo reactivar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
     }
   }
 
@@ -130,8 +150,12 @@ export default function AdminUsers() {
     try {
       const r = await resend.mutate({ userId: id });
       setResentLink(r.activationLink);
-    } catch {
-      /* error */
+    } catch (e) {
+      toast({
+        title: 'No se pudo reenviar la invitación',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
     }
   }
 
@@ -308,6 +332,8 @@ export default function AdminUsers() {
       {resentLink && (
         <ResendLinkModal link={resentLink} onClose={() => setResentLink(null)} />
       )}
+
+      {confirmDialog}
     </AppShell>
   );
 }

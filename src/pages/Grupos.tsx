@@ -8,6 +8,8 @@ import { useSession } from '../lib/store/session';
 import { GrupoFormModal } from '../components/GrupoFormModal';
 import { Modal } from '../components/Modal';
 import { DetailModal, type DetailSection } from '../components/DetailModal';
+import { useConfirmDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 interface Member {
   id: string;
@@ -351,6 +353,8 @@ function ManageMembersModal({
 
   const addMember = useApiMutation('addGrupoMember');
   const removeMember = useApiMutation('removeGrupoMember');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
 
   // Filtrar candidatos: que NO sean ya miembros activos
   const memberIds = new Set((members ?? []).map((m) => m.user_id));
@@ -361,18 +365,32 @@ function ManageMembersModal({
     try {
       await addMember.mutate({ grupoId: grupo.id, userId: selectedUserId });
       setSelectedUserId('');
+      toast({ title: 'Miembro agregado', tone: 'success' });
       void refetch();
       onChanged();
-    } catch { /* error */ }
+    } catch { /* error inline */ }
   }
 
   async function handleRemove(memberId: string) {
-    if (!window.confirm('¿Quitar este miembro del grupo?')) return;
+    const ok = await confirm({
+      title: 'Quitar miembro',
+      message: '¿Sacar a este cliente del grupo? Sus reservas individuales no se ven afectadas.',
+      confirmLabel: 'Quitar',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await removeMember.mutate({ memberId });
+      toast({ title: 'Miembro retirado', tone: 'success' });
       void refetch();
       onChanged();
-    } catch { /* */ }
+    } catch (e) {
+      toast({
+        title: 'No se pudo retirar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
   }
 
   return (
@@ -455,6 +473,7 @@ function ManageMembersModal({
 
         <Btn full variant="secondary" onClick={onClose}>Cerrar</Btn>
       </div>
+      {confirmDialog}
     </Modal>
   );
 }

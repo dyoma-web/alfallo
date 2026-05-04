@@ -7,6 +7,8 @@ import { StatusBadge } from '../components/StatusBadge';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { GimnasioFormModal } from '../components/admin/GimnasioFormModal';
 import { DetailModal, type DetailSection } from '../components/DetailModal';
+import { useConfirmDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 interface Gimnasio {
   id: string;
@@ -25,19 +27,41 @@ export default function AdminGimnasios() {
   const [viewing, setViewing] = useState<Gimnasio | null>(null);
   const { data, error, loading, refetch } = useApiQuery<Gimnasio[]>('adminListGimnasios');
   const update = useApiMutation('adminUpdateGimnasio');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
 
   async function archive(id: string) {
-    if (!window.confirm('¿Archivar este gimnasio? Las sedes asociadas se mantienen.')) return;
+    const ok = await confirm({
+      title: 'Archivar gimnasio',
+      message: 'Las sedes asociadas se mantienen activas. El gimnasio dejará de aparecer en listados nuevos.',
+      confirmLabel: 'Archivar',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await update.mutate({ gimnasioId: id, estado: 'archived' });
+      toast({ title: 'Gimnasio archivado', tone: 'success' });
       void refetch();
-    } catch { /* */ }
+    } catch (e) {
+      toast({
+        title: 'No se pudo archivar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
   }
   async function reactivate(id: string) {
     try {
       await update.mutate({ gimnasioId: id, estado: 'active' });
+      toast({ title: 'Gimnasio reactivado', tone: 'success' });
       void refetch();
-    } catch { /* */ }
+    } catch (e) {
+      toast({
+        title: 'No se pudo reactivar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
   }
 
   return (
@@ -104,6 +128,8 @@ export default function AdminGimnasios() {
         onClose={() => setViewing(null)}
         onEdit={() => { setEditing(viewing); setViewing(null); }}
       />
+
+      {confirmDialog}
     </AppShell>
   );
 }

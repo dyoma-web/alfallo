@@ -9,6 +9,8 @@ import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { PlanFormModal } from '../components/admin/PlanFormModal';
 import { AssignPlanModal } from '../components/admin/AssignPlanModal';
 import { DetailModal, type DetailSection } from '../components/DetailModal';
+import { useConfirmDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 import { config } from '../lib/config';
 
 interface PlanCatalogo {
@@ -44,6 +46,8 @@ export default function AdminPlanes() {
     'adminListPlanesCatalogo'
   );
   const update = useApiMutation('adminUpdatePlanCatalogo');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
 
   useEffect(() => {
     if (searchParams.get('nuevo') === '1') {
@@ -56,11 +60,24 @@ export default function AdminPlanes() {
   }, [searchParams]);
 
   async function handleArchive(id: string) {
-    if (!window.confirm('¿Archivar este plan? Los planes ya asignados a usuarios siguen activos.')) return;
+    const ok = await confirm({
+      title: 'Archivar plan',
+      message: 'Los planes ya asignados a usuarios siguen activos. Solo se oculta del catálogo.',
+      confirmLabel: 'Archivar',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await update.mutate({ planId: id, estado: 'archived' });
+      toast({ title: 'Plan archivado', tone: 'success' });
       void refetch();
-    } catch { /* error */ }
+    } catch (e) {
+      toast({
+        title: 'No se pudo archivar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
   }
 
   return (
@@ -157,6 +174,8 @@ export default function AdminPlanes() {
         onClose={() => setAssigningPlanId(null)}
         onAssigned={() => setAssigningPlanId(null)}
       />
+
+      {confirmDialog}
     </AppShell>
   );
 }
