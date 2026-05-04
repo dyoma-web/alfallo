@@ -8,6 +8,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { PlanFormModal } from '../components/admin/PlanFormModal';
 import { AssignPlanModal } from '../components/admin/AssignPlanModal';
+import { DetailModal, type DetailSection } from '../components/DetailModal';
 import { config } from '../lib/config';
 
 interface PlanCatalogo {
@@ -19,6 +20,8 @@ interface PlanCatalogo {
   precio: number | string;
   moneda?: string;
   vigencia_dias: number | string;
+  cupos_max_simultaneos?: number | string;
+  cupos_estricto?: boolean | string;
   estado?: string;
   entrenador?: { id: string; nombres: string; apellidos: string } | null;
   sede?: { id: string; nombre: string } | null;
@@ -34,6 +37,7 @@ export default function AdminPlanes() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showCreate, setShowCreate] = useState(false);
   const [editingPlan, setEditingPlan] = useState<PlanCatalogo | null>(null);
+  const [viewingPlan, setViewingPlan] = useState<PlanCatalogo | null>(null);
   const [assigningPlanId, setAssigningPlanId] = useState<string | null>(null);
 
   const { data, error, loading, refetch } = useApiQuery<PlanCatalogo[]>(
@@ -109,6 +113,7 @@ export default function AdminPlanes() {
               <PlanRow
                 key={p.id}
                 plan={p}
+                onView={() => setViewingPlan(p)}
                 onEdit={() => setEditingPlan(p)}
                 onAssign={() => setAssigningPlanId(p.id)}
                 onArchive={() => handleArchive(p.id)}
@@ -133,6 +138,19 @@ export default function AdminPlanes() {
         }}
       />
 
+      <PlanDetailModal
+        plan={viewingPlan}
+        onClose={() => setViewingPlan(null)}
+        onEdit={() => {
+          setEditingPlan(viewingPlan);
+          setViewingPlan(null);
+        }}
+        onAssign={() => {
+          if (viewingPlan) setAssigningPlanId(viewingPlan.id);
+          setViewingPlan(null);
+        }}
+      />
+
       <AssignPlanModal
         open={assigningPlanId !== null}
         preselectedPlanId={assigningPlanId ?? undefined}
@@ -143,14 +161,107 @@ export default function AdminPlanes() {
   );
 }
 
+function PlanDetailModal({
+  plan,
+  onClose,
+  onEdit,
+  onAssign,
+}: {
+  plan: PlanCatalogo | null;
+  onClose: () => void;
+  onEdit: () => void;
+  onAssign: () => void;
+}) {
+  if (!plan) return null;
+  const isArchived = plan.estado === 'archived';
+  const cupos = plan.cupos_max_simultaneos ? Number(plan.cupos_max_simultaneos) : null;
+  const estricto = plan.cupos_estricto === true || plan.cupos_estricto === 'TRUE';
+  const defaultsByTipo: Record<string, number> = { personalizado: 1, semipersonalizado: 5, grupal: 15 };
+
+  const sections: DetailSection[] = [
+    {
+      title: 'Detalles del plan',
+      fields: [
+        { label: 'Tipo', value: TIPO_LABEL[plan.tipo] ?? plan.tipo },
+        { label: 'Sesiones', value: String(plan.num_sesiones) },
+        { label: 'Vigencia', value: `${plan.vigencia_dias} días` },
+        { label: 'Precio', value: formatMoney(Number(plan.precio), plan.moneda || 'COP') },
+      ],
+    },
+    {
+      title: 'Cupos por franja',
+      description: 'Cuántos clientes pueden agendar al mismo tiempo con este plan.',
+      fields: [
+        {
+          label: 'Máx simultáneos',
+          value: cupos ?? `${defaultsByTipo[plan.tipo] ?? 1} (default por tipo)`,
+        },
+        {
+          label: 'Tipo de cupo',
+          value: estricto
+            ? 'Estricto · rechaza si está lleno'
+            : 'Flexible · permite solicitud, requiere autorización',
+        },
+      ],
+    },
+    {
+      title: 'Asignación',
+      fields: [
+        {
+          label: 'Entrenador titular',
+          value: plan.entrenador
+            ? `${plan.entrenador.nombres} ${plan.entrenador.apellidos}`.trim()
+            : 'Plan de la plataforma (sin titular)',
+        },
+        {
+          label: 'Sede default',
+          value: plan.sede ? plan.sede.nombre : 'Cualquier sede',
+        },
+      ],
+    },
+  ];
+
+  if (plan.descripcion) {
+    sections.unshift({
+      fields: [{ label: 'Descripción', value: plan.descripcion, fullWidth: true }],
+    });
+  }
+
+  return (
+    <DetailModal
+      open
+      onClose={onClose}
+      title={plan.nombre}
+      badge={
+        <StatusBadge
+          kind={isArchived ? 'cancelado' : 'plan-activo'}
+          label={isArchived ? 'Archivado' : 'Activo'}
+        />
+      }
+      sections={sections}
+      actions={
+        <>
+          <Btn variant="secondary" full onClick={onClose}>Cerrar</Btn>
+          {!isArchived && (
+            <Btn variant="outline" onClick={onAssign}>Asignar a usuario</Btn>
+          )}
+          <Btn onClick={onEdit}>Editar</Btn>
+        </>
+      }
+    />
+  );
+}
+
 function PlanRow({
   plan,
+  onView,
   onEdit,
   onAssign,
   onArchive,
   busy,
 }: {
   plan: PlanCatalogo;
+  onView: () => void;
   onEdit: () => void;
   onAssign: () => void;
   onArchive: () => void;
@@ -159,49 +270,58 @@ function PlanRow({
   const isArchived = plan.estado === 'archived';
   return (
     <li>
-      <Card padding={16}>
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center flex-none">
-            <Icon name="shield" size={18} color="#C8FF3D" />
-          </div>
+      <Card padding={0}>
+        {/* Área clickeable que abre detalle. Los botones del footer
+            se mantienen como acciones explícitas. */}
+        <button
+          type="button"
+          onClick={onView}
+          className="w-full text-left p-4 rounded-t-2xl hover:bg-surface-2/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+          aria-label={`Ver detalle de ${plan.nombre}`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center flex-none">
+              <Icon name="shield" size={18} color="#C8FF3D" />
+            </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-sm">{plan.nombre}</span>
-              <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-fg-3">
-                {TIPO_LABEL[plan.tipo] ?? plan.tipo}
-              </span>
-            </div>
-            {plan.descripcion && (
-              <p className="text-fg-2 text-[12px] mt-0.5 line-clamp-1">{plan.descripcion}</p>
-            )}
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[12px] text-fg-2">
-              <span>{plan.num_sesiones} sesiones</span>
-              <span>·</span>
-              <span>vigencia {plan.vigencia_dias} días</span>
-              <span>·</span>
-              <span className="font-medium text-fg">
-                {formatMoney(Number(plan.precio), plan.moneda || 'COP')}
-              </span>
-            </div>
-            {(plan.entrenador || plan.sede) && (
-              <div className="text-fg-3 text-[11px] mt-1">
-                {plan.entrenador && (
-                  <span>Titular: {plan.entrenador.nombres} {plan.entrenador.apellidos}</span>
-                )}
-                {plan.entrenador && plan.sede && ' · '}
-                {plan.sede && <span>Sede: {plan.sede.nombre}</span>}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-sm">{plan.nombre}</span>
+                <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-fg-3">
+                  {TIPO_LABEL[plan.tipo] ?? plan.tipo}
+                </span>
               </div>
-            )}
+              {plan.descripcion && (
+                <p className="text-fg-2 text-[12px] mt-0.5 line-clamp-1">{plan.descripcion}</p>
+              )}
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[12px] text-fg-2">
+                <span>{plan.num_sesiones} sesiones</span>
+                <span>·</span>
+                <span>vigencia {plan.vigencia_dias} días</span>
+                <span>·</span>
+                <span className="font-medium text-fg">
+                  {formatMoney(Number(plan.precio), plan.moneda || 'COP')}
+                </span>
+              </div>
+              {(plan.entrenador || plan.sede) && (
+                <div className="text-fg-3 text-[11px] mt-1">
+                  {plan.entrenador && (
+                    <span>Titular: {plan.entrenador.nombres} {plan.entrenador.apellidos}</span>
+                  )}
+                  {plan.entrenador && plan.sede && ' · '}
+                  {plan.sede && <span>Sede: {plan.sede.nombre}</span>}
+                </div>
+              )}
+            </div>
+
+            <StatusBadge
+              kind={isArchived ? 'cancelado' : 'plan-activo'}
+              label={isArchived ? 'Archivado' : 'Activo'}
+            />
           </div>
+        </button>
 
-          <StatusBadge
-            kind={isArchived ? 'cancelado' : 'plan-activo'}
-            label={isArchived ? 'Archivado' : 'Activo'}
-          />
-        </div>
-
-        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-line">
+        <div className="flex flex-wrap gap-2 px-4 pb-4 pt-3 border-t border-line">
           <Btn variant="secondary" size="sm" onClick={onEdit} disabled={busy}>
             Editar
           </Btn>
