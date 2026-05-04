@@ -282,6 +282,83 @@ function trainerGetUserProfile(payload, ctx) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// trainerGetMetas — meta económica + tier (Iter 14)
+// Periodo default: mes en curso. payload.period = 'YYYY-MM' opcional.
+//
+// Tiers (umbrales fijos sobre meta económica):
+//   base   ≥ 70%   meta   ≥ 100%   elite  ≥ 130%
+// Por debajo de 70% → 'pendiente'. Sin meta configurada → 'sin_meta'.
+// ──────────────────────────────────────────────────────────────────────────
+
+const TRAINER_METAS_TIERS = {
+  base: 0.7,
+  meta: 1.0,
+  elite: 1.3,
+};
+
+function trainerGetMetas(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const trainerId = ctx.userId;
+
+  const now = new Date();
+  const periodInput = payload && payload.period ? String(payload.period) : '';
+  const re = /^(\d{4})-(\d{2})$/;
+  const match = re.exec(periodInput);
+  const year = match ? Number(match[1]) : now.getUTCFullYear();
+  const monthIdx = match ? Number(match[2]) - 1 : now.getUTCMonth();
+  if (monthIdx < 0 || monthIdx > 11) {
+    throw _err('VALIDATION', 'period inválido — formato YYYY-MM');
+  }
+  const periodStart = new Date(Date.UTC(year, monthIdx, 1));
+  const periodEnd = new Date(Date.UTC(year, monthIdx + 1, 1));
+  const periodLabel = String(year) + '-' + String(monthIdx + 1).padStart(2, '0');
+
+  const perfil = dbFindBy('entrenadores_perfil', 'user_id', trainerId);
+  const metaEconomica = perfil ? Number(perfil.meta_economica_mensual) || 0 : 0;
+  const metaUsuarios = perfil ? Number(perfil.meta_usuarios_activos) || 0 : 0;
+
+  const planesPeriodo = dbListAll('planes_usuario', function (p) {
+    if (p.entrenador_id !== trainerId) return false;
+    if (!p.fecha_compra_utc) return false;
+    const fc = new Date(p.fecha_compra_utc);
+    return fc >= periodStart && fc < periodEnd;
+  });
+  const acumuladoEconomico = planesPeriodo.reduce(function (sum, p) {
+    return sum + (Number(p.precio_pagado) || 0);
+  }, 0);
+
+  const usuariosActivos = dbListAll('usuarios', function (u) {
+    return u.entrenador_asignado_id === trainerId
+      && u.rol === 'client'
+      && u.estado === 'active';
+  }).length;
+
+  let tier = 'sin_meta';
+  let progresoEconomico = 0;
+  if (metaEconomica > 0) {
+    progresoEconomico = acumuladoEconomico / metaEconomica;
+    if (progresoEconomico >= TRAINER_METAS_TIERS.elite) tier = 'elite';
+    else if (progresoEconomico >= TRAINER_METAS_TIERS.meta) tier = 'meta';
+    else if (progresoEconomico >= TRAINER_METAS_TIERS.base) tier = 'base';
+    else tier = 'pendiente';
+  }
+
+  return {
+    period: periodLabel,
+    metaEconomica: metaEconomica,
+    acumuladoEconomico: acumuladoEconomico,
+    progresoEconomico: progresoEconomico,
+    metaUsuarios: metaUsuarios,
+    usuariosActivos: usuariosActivos,
+    tier: tier,
+    tierThresholds: TRAINER_METAS_TIERS,
+    planesContados: planesPeriodo.length,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────
 

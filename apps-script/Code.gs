@@ -151,6 +151,10 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'getUserOperationalProfile':
       return trainerGetUserProfile(payload, ctx);
 
+    // ── Trainer · Metas con tiers (Iter 14) ──────────────────────────────
+    case 'getTrainerMetas':
+      return trainerGetMetas(payload, ctx);
+
     // ── Admin (Iter 7) ──────────────────────────────────────────────────
     case 'getAdminDashboard':
       return adminGetDashboard(payload, ctx);

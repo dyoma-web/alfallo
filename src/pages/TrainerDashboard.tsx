@@ -11,6 +11,7 @@ import { useConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 import { useSession } from '../lib/store/session';
 import { formatDate, formatTime, formatRelative, greeting } from '../lib/datetime';
+import { config } from '../lib/config';
 
 interface SesionHoy {
   id: string;
@@ -50,6 +51,20 @@ interface DashboardData {
   planesPorVencer: PlanPorVencer[];
 }
 
+type MetaTier = 'sin_meta' | 'pendiente' | 'base' | 'meta' | 'elite';
+
+interface MetasData {
+  period: string;
+  metaEconomica: number;
+  acumuladoEconomico: number;
+  progresoEconomico: number;
+  metaUsuarios: number;
+  usuariosActivos: number;
+  tier: MetaTier;
+  tierThresholds: { base: number; meta: number; elite: number };
+  planesContados: number;
+}
+
 const STATE_TO_BADGE: Record<string, StatusKind> = {
   solicitado: 'pendiente',
   confirmado: 'confirmado',
@@ -65,6 +80,7 @@ export default function TrainerDashboard() {
   const navigate = useNavigate();
   const { data, error, loading, refetch } = useApiQuery<DashboardData>('getTrainerDashboard');
   const { data: weekBookings } = useApiQuery<CalendarBooking[]>('listMyBookings');
+  const { data: metas } = useApiQuery<MetasData>('getTrainerMetas');
 
   const calBookings = useMemo(() => weekBookings ?? [], [weekBookings]);
 
@@ -133,6 +149,8 @@ export default function TrainerDashboard() {
             <p className="text-err-fg">{error.message}</p>
           </Card>
         )}
+
+        {metas && <MetasCard metas={metas} />}
 
         {data && (
           <>
@@ -241,6 +259,133 @@ export default function TrainerDashboard() {
 // ──────────────────────────────────────────────────────────────────────────
 // Subcomponentes
 // ──────────────────────────────────────────────────────────────────────────
+
+const TIER_META: Record<MetaTier, {
+  label: string;
+  hint: string;
+  icon: 'trophy' | 'check' | 'chart' | 'bolt';
+  bar: string;
+  badgeBg: string;
+  badgeFg: string;
+}> = {
+  elite:     { label: 'Elite',     hint: 'Por encima del 130%',       icon: 'trophy', bar: 'bg-accent',     badgeBg: 'bg-accent/15',  badgeFg: 'text-accent' },
+  meta:      { label: 'Meta',      hint: 'Meta cumplida',             icon: 'check',  bar: 'bg-accent',     badgeBg: 'bg-accent/10',  badgeFg: 'text-accent' },
+  base:      { label: 'Base',      hint: 'Sobre el umbral mínimo',    icon: 'chart',  bar: 'bg-fg-2',       badgeBg: 'bg-surface-2',  badgeFg: 'text-fg-2' },
+  pendiente: { label: 'Pendiente', hint: 'Aún por debajo del 70%',    icon: 'bolt',   bar: 'bg-fg-3',       badgeBg: 'bg-surface-2',  badgeFg: 'text-fg-3' },
+  sin_meta:  { label: 'Sin meta',  hint: 'No hay meta económica configurada', icon: 'bolt', bar: 'bg-fg-3', badgeBg: 'bg-surface-2',  badgeFg: 'text-fg-3' },
+};
+
+function MetasCard({ metas }: { metas: MetasData }) {
+  const t = TIER_META[metas.tier];
+  const pct = Math.round((metas.progresoEconomico ?? 0) * 100);
+  const fillWidth = Math.min(150, Math.max(0, pct));
+  const periodLabel = formatPeriodLabel(metas.period);
+  const hasMeta = metas.metaEconomica > 0;
+
+  return (
+    <Card padding={20} className="mb-5">
+      <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <div>
+          <p className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-0.5">
+            Meta económica · {periodLabel}
+          </p>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="font-display text-2xl font-bold tracking-[-0.02em]">
+              {formatMoney(metas.acumuladoEconomico)}
+            </span>
+            {hasMeta && (
+              <span className="text-fg-3 text-sm">
+                / {formatMoney(metas.metaEconomica)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div
+          className={[
+            'flex items-center gap-1.5 px-2.5 py-1 rounded-full',
+            t.badgeBg,
+            t.badgeFg,
+          ].join(' ')}
+          title={t.hint}
+        >
+          <Icon name={t.icon} size={13} color="currentColor" />
+          <span className="text-[11px] font-mono uppercase tracking-[0.14em]">
+            {t.label}
+          </span>
+          {hasMeta && <span className="text-[11px] font-mono">{pct}%</span>}
+        </div>
+      </div>
+
+      {hasMeta ? (
+        <div className="relative h-2 rounded-full bg-surface-2 overflow-visible">
+          <div
+            className={['h-full rounded-full transition-all', t.bar].join(' ')}
+            style={{ width: `${(fillWidth / 150) * 100}%` }}
+            aria-label={`Progreso ${pct}%`}
+          />
+          <TierMark percent={metas.tierThresholds.base * 100 / 150} label="70%" />
+          <TierMark percent={metas.tierThresholds.meta * 100 / 150} label="100%" />
+          <TierMark percent={metas.tierThresholds.elite * 100 / 150} label="130%" />
+        </div>
+      ) : (
+        <p className="text-fg-3 text-[12px]">
+          Configura tu meta mensual desde el perfil para ver tu avance.
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-fg-2">
+        <span>
+          <span className="font-medium text-fg">{metas.usuariosActivos}</span> usuarios activos
+          {metas.metaUsuarios > 0 && (
+            <span className="text-fg-3"> / meta {metas.metaUsuarios}</span>
+          )}
+        </span>
+        <span className="text-fg-3">·</span>
+        <span>
+          <span className="font-medium text-fg">{metas.planesContados}</span> plan{metas.planesContados === 1 ? '' : 'es'} vendido{metas.planesContados === 1 ? '' : 's'} este mes
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+function TierMark({ percent, label }: { percent: number; label: string }) {
+  return (
+    <div
+      className="absolute top-0 h-full w-px bg-line-2"
+      style={{ left: `${percent}%` }}
+      aria-hidden
+    >
+      <span className="absolute -top-4 -translate-x-1/2 text-[9px] font-mono text-fg-3 whitespace-nowrap">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function formatMoney(amount: number): string {
+  try {
+    return new Intl.NumberFormat(config.locale, {
+      style: 'currency',
+      currency: config.currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${Math.round(amount).toLocaleString()} ${config.currency}`;
+  }
+}
+
+function formatPeriodLabel(period: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!m) return period;
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, 1);
+  try {
+    return new Intl.DateTimeFormat(config.locale, { month: 'long', year: 'numeric' })
+      .format(date);
+  } catch {
+    return period;
+  }
+}
 
 function KpiTile({
   icon,
