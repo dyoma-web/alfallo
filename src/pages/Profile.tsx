@@ -7,7 +7,9 @@ import { Btn } from '../components/Btn';
 import { Field as Input } from '../components/Field';
 import { Icon } from '../components/Icon';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
+import { useToast } from '../components/Toast';
 import { useSession, type SessionUser } from '../lib/store/session';
+import { config } from '../lib/config';
 
 interface ProfileForm {
   nombres: string;
@@ -163,6 +165,10 @@ export default function Profile() {
               </form>
             </Card>
 
+            {(profile.rol === 'trainer' || profile.rol === 'admin' || profile.rol === 'super_admin') && (
+              <TrainerMetasSection />
+            )}
+
             <Card padding={20} className="mt-4">
               <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-3">
                 Privacidad
@@ -203,6 +209,115 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-fg-3 text-sm">{label}</span>
       <span className="text-fg-2 text-sm text-right">{children}</span>
     </div>
+  );
+}
+
+interface TrainerMyMetas {
+  metaEconomica: number;
+  metaUsuarios: number;
+  hasProfile: boolean;
+}
+
+interface MetasForm {
+  metaEconomicaMensual: string;
+  metaUsuariosActivos: string;
+}
+
+function TrainerMetasSection() {
+  const toast = useToast();
+  const { data: metas, loading, error, refetch } = useApiQuery<TrainerMyMetas>('getTrainerMyMetas');
+  const update = useApiMutation('updateTrainerMetas');
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { isDirty },
+  } = useForm<MetasForm>({
+    defaultValues: { metaEconomicaMensual: '', metaUsuariosActivos: '' },
+  });
+
+  useEffect(() => {
+    if (metas) {
+      reset({
+        metaEconomicaMensual: metas.metaEconomica > 0 ? String(metas.metaEconomica) : '',
+        metaUsuariosActivos: metas.metaUsuarios > 0 ? String(metas.metaUsuarios) : '',
+      });
+    }
+  }, [metas, reset]);
+
+  async function onSubmit(values: MetasForm) {
+    try {
+      await update.mutate({
+        metaEconomicaMensual: Number(values.metaEconomicaMensual) || 0,
+        metaUsuariosActivos: Number(values.metaUsuariosActivos) || 0,
+      });
+      toast({ title: 'Metas actualizadas', tone: 'success' });
+      void refetch();
+    } catch (e) {
+      toast({
+        title: 'No se pudieron guardar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
+  }
+
+  return (
+    <Card padding={20} className="mt-4">
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
+          Metas mensuales
+        </div>
+        <Icon name="trophy" size={14} color="#A8B0A4" />
+      </div>
+
+      {loading && (
+        <div className="text-fg-3 text-[12px]">Cargando...</div>
+      )}
+
+      {error && !loading && (
+        <p className="text-err-fg text-[12px]">{error.message}</p>
+      )}
+
+      {metas && !metas.hasProfile && (
+        <p className="text-fg-3 text-[12px]">
+          Aún no tienes perfil profesional. Pide al admin que lo cree para configurar tus metas.
+        </p>
+      )}
+
+      {metas && metas.hasProfile && (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+          <p className="text-fg-3 text-[12px] mb-2">
+            Tu tier (Base / Meta / Elite) se calcula sobre estos valores. Moneda: {config.currency}.
+          </p>
+
+          <Input
+            label="Meta económica mensual"
+            type="number"
+            min={0}
+            step={10000}
+            placeholder="5000000"
+            hint="Total de planes vendidos al mes (en pesos). Deja 0 si no quieres meta."
+            {...register('metaEconomicaMensual')}
+          />
+
+          <Input
+            label="Meta de usuarios activos"
+            type="number"
+            min={0}
+            step={1}
+            placeholder="20"
+            hint="Cuántos clientes activos quieres mantener."
+            {...register('metaUsuariosActivos')}
+          />
+
+          <Btn type="submit" size="md" disabled={!isDirty || update.loading}>
+            {update.loading ? 'Guardando...' : 'Guardar metas'}
+          </Btn>
+        </form>
+      )}
+    </Card>
   );
 }
 

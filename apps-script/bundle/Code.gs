@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-04T16:09:46.145Z                              ║
+ * ║  Built:   2026-05-04T16:25:38.215Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -3202,6 +3202,67 @@ function trainerGetMetas(payload, ctx) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// trainerUpdateMetas — el propio trainer setea sus metas mensuales (Iter 14)
+// ──────────────────────────────────────────────────────────────────────────
+
+function trainerUpdateMetas(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const trainerId = ctx.userId;
+
+  if (payload.metaEconomicaMensual == null && payload.metaUsuariosActivos == null) {
+    throw _err('VALIDATION', 'Envía al menos una meta a actualizar');
+  }
+
+  const existing = dbFindById('entrenadores_perfil', trainerId);
+  if (!existing) {
+    throw _err('NOT_FOUND',
+      'No tienes perfil profesional. Pide al admin que lo cree antes de configurar metas.');
+  }
+
+  const patch = { updated_at: dbNowUtc() };
+  if (payload.metaEconomicaMensual != null) {
+    patch.meta_economica_mensual = Math.max(0, Number(payload.metaEconomicaMensual) || 0);
+  }
+  if (payload.metaUsuariosActivos != null) {
+    patch.meta_usuarios_activos = Math.max(0, Math.floor(Number(payload.metaUsuariosActivos) || 0));
+  }
+
+  const result = dbUpdateById('entrenadores_perfil', trainerId, patch);
+
+  auditOk(ctx.userId, 'update_trainer_metas', 'entrenadores_perfil', trainerId,
+    JSON.stringify({
+      meta_economica_mensual: existing.meta_economica_mensual,
+      meta_usuarios_activos: existing.meta_usuarios_activos,
+    }),
+    JSON.stringify(patch),
+    ctx.reqMeta);
+
+  return {
+    metaEconomica: Number(result.meta_economica_mensual) || 0,
+    metaUsuarios: Number(result.meta_usuarios_activos) || 0,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// trainerGetMyMetas — el trainer consulta sus metas configuradas (Iter 14)
+// Distinto de trainerGetMetas (que devuelve avance del periodo).
+// ──────────────────────────────────────────────────────────────────────────
+
+function trainerGetMyMetas(_payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const perfil = dbFindById('entrenadores_perfil', ctx.userId);
+  return {
+    metaEconomica: perfil ? Number(perfil.meta_economica_mensual) || 0 : 0,
+    metaUsuarios: perfil ? Number(perfil.meta_usuarios_activos) || 0 : 0,
+    hasProfile: !!perfil,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -5433,6 +5494,12 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     // ── Trainer · Metas con tiers (Iter 14) ──────────────────────────────
     case 'getTrainerMetas':
       return trainerGetMetas(payload, ctx);
+
+    case 'getTrainerMyMetas':
+      return trainerGetMyMetas(payload, ctx);
+
+    case 'updateTrainerMetas':
+      return trainerUpdateMetas(payload, ctx);
 
     // ── Admin (Iter 7) ──────────────────────────────────────────────────
     case 'getAdminDashboard':
