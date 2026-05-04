@@ -7,6 +7,7 @@ import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { useSession } from '../lib/store/session';
 import { GrupoFormModal } from '../components/GrupoFormModal';
 import { Modal } from '../components/Modal';
+import { DetailModal, type DetailSection } from '../components/DetailModal';
 
 interface Member {
   id: string;
@@ -41,6 +42,7 @@ export default function Grupos() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<Grupo | null>(null);
+  const [viewing, setViewing] = useState<Grupo | null>(null);
   const [managingMembers, setManagingMembers] = useState<Grupo | null>(null);
 
   const { data, error, loading, refetch } = useApiQuery<Grupo[]>('listGrupos');
@@ -95,6 +97,7 @@ export default function Grupos() {
                 key={g.id}
                 grupo={g}
                 isClient={isClient}
+                onView={() => setViewing(g)}
                 onEdit={() => setEditing(g)}
                 onManage={() => setManagingMembers(g)}
               />
@@ -119,56 +122,182 @@ export default function Grupos() {
           onChanged={() => { void refetch(); }}
         />
       )}
+
+      <GrupoDetailModal
+        grupo={viewing}
+        isClient={isClient}
+        onClose={() => setViewing(null)}
+        onEdit={() => { setEditing(viewing); setViewing(null); }}
+        onManage={() => { setManagingMembers(viewing); setViewing(null); }}
+      />
     </AppShell>
+  );
+}
+
+function GrupoDetailModal({
+  grupo,
+  isClient,
+  onClose,
+  onEdit,
+  onManage,
+}: {
+  grupo: Grupo | null;
+  isClient: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+  onManage: () => void;
+}) {
+  if (!grupo) return null;
+  const cap = Number(grupo.capacidad_max) || 0;
+  const capText = cap > 0
+    ? `${grupo.miembrosCount}/${cap} miembros`
+    : `${grupo.miembrosCount} miembro${grupo.miembrosCount === 1 ? '' : 's'} · sin límite de capacidad`;
+
+  const sections: DetailSection[] = [
+    {
+      title: 'Información',
+      fields: [
+        { label: 'Tipo', value: grupo.tipo },
+        { label: 'Capacidad', value: capText },
+        {
+          label: 'Color',
+          value: (
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="inline-block w-4 h-4 rounded-full border border-line-2"
+                style={{ background: grupo.color }}
+                aria-hidden
+              />
+              <span className="font-mono text-[12px]">{grupo.color}</span>
+            </span>
+          ),
+        },
+        {
+          label: 'Entrenador titular',
+          value: grupo.entrenador
+            ? `${grupo.entrenador.nombres} ${grupo.entrenador.apellidos}`.trim()
+            : '',
+        },
+      ],
+    },
+  ];
+
+  if (grupo.descripcion) {
+    sections.unshift({
+      fields: [{ label: 'Descripción', value: grupo.descripcion, fullWidth: true }],
+    });
+  }
+
+  // Lista compacta de miembros (primeros 5)
+  const memberPreview = grupo.miembros.slice(0, 5);
+  const more = grupo.miembros.length - memberPreview.length;
+
+  return (
+    <DetailModal
+      open
+      onClose={onClose}
+      title={grupo.nombre}
+      sections={sections}
+      actions={
+        <>
+          <Btn variant="secondary" full onClick={onClose}>Cerrar</Btn>
+          {!isClient && (
+            <>
+              <Btn variant="outline" onClick={onManage}>Miembros</Btn>
+              <Btn onClick={onEdit}>Editar</Btn>
+            </>
+          )}
+        </>
+      }
+    >
+      {memberPreview.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
+            Miembros {grupo.miembros.length > 0 && `(${grupo.miembros.length})`}
+          </h3>
+          <ul className="space-y-1.5">
+            {memberPreview.map((m) => (
+              <li key={m.id} className="flex items-center gap-2.5 text-sm">
+                <span
+                  className="w-6 h-6 rounded-full bg-accent flex items-center justify-center flex-none text-[10px] font-bold"
+                  style={{ color: '#0B1208' }}
+                  aria-hidden
+                >
+                  {(m.usuario?.nombres?.charAt(0) ?? '').toUpperCase()}
+                  {(m.usuario?.apellidos?.charAt(0) ?? '').toUpperCase()}
+                </span>
+                <span className="text-fg-2">
+                  {m.usuario ? `${m.usuario.nombres} ${m.usuario.apellidos}` : '—'}
+                </span>
+              </li>
+            ))}
+            {more > 0 && (
+              <li className="text-fg-3 text-[12px] pl-9">
+                y {more} más…
+              </li>
+            )}
+          </ul>
+        </section>
+      )}
+    </DetailModal>
   );
 }
 
 function GrupoRow({
   grupo,
   isClient,
+  onView,
   onEdit,
   onManage,
 }: {
   grupo: Grupo;
   isClient: boolean;
+  onView: () => void;
   onEdit: () => void;
   onManage: () => void;
 }) {
   return (
     <li>
-      <Card padding={16}>
-        <div className="flex items-start gap-3">
-          <div
-            className="w-10 h-10 rounded-xl flex-none border-2"
-            style={{
-              background: hexWithAlpha(grupo.color, 0.2),
-              borderColor: hexWithAlpha(grupo.color, 0.6),
-            }}
-            aria-hidden
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-sm">{grupo.nombre}</span>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-fg-3">
-                {grupo.tipo}
-              </span>
-            </div>
-            {grupo.descripcion && (
-              <p className="text-fg-2 text-[12px] mt-0.5 line-clamp-1">{grupo.descripcion}</p>
-            )}
-            <div className="text-fg-3 text-[12px] mt-1">
-              {Number(grupo.capacidad_max) > 0
-                ? `${grupo.miembrosCount}/${grupo.capacidad_max} miembros`
-                : `${grupo.miembrosCount} miembro${grupo.miembrosCount === 1 ? '' : 's'} · sin límite`}
-              {grupo.entrenador && (
-                <span> · {grupo.entrenador.nombres} {grupo.entrenador.apellidos}</span>
+      <Card padding={0}>
+        <button
+          type="button"
+          onClick={onView}
+          className="w-full text-left p-4 rounded-t-2xl hover:bg-surface-2/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+          aria-label={`Ver detalle de ${grupo.nombre}`}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className="w-10 h-10 rounded-xl flex-none border-2"
+              style={{
+                background: hexWithAlpha(grupo.color, 0.2),
+                borderColor: hexWithAlpha(grupo.color, 0.6),
+              }}
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-sm">{grupo.nombre}</span>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-fg-3">
+                  {grupo.tipo}
+                </span>
+              </div>
+              {grupo.descripcion && (
+                <p className="text-fg-2 text-[12px] mt-0.5 line-clamp-1">{grupo.descripcion}</p>
               )}
+              <div className="text-fg-3 text-[12px] mt-1">
+                {Number(grupo.capacidad_max) > 0
+                  ? `${grupo.miembrosCount}/${grupo.capacidad_max} miembros`
+                  : `${grupo.miembrosCount} miembro${grupo.miembrosCount === 1 ? '' : 's'} · sin límite`}
+                {grupo.entrenador && (
+                  <span> · {grupo.entrenador.nombres} {grupo.entrenador.apellidos}</span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </button>
 
         {!isClient && (
-          <div className="flex gap-2 mt-3 pt-3 border-t border-line">
+          <div className="flex gap-2 px-4 pb-4 pt-3 border-t border-line">
             <Btn variant="secondary" size="sm" onClick={onManage}>
               Miembros ({grupo.miembrosCount})
             </Btn>
