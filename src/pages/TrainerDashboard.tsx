@@ -281,6 +281,7 @@ function MetasCard({ metas }: { metas: MetasData }) {
   const fillWidth = Math.min(150, Math.max(0, pct));
   const periodLabel = formatPeriodLabel(metas.period);
   const hasMeta = metas.metaEconomica > 0;
+  const ritmo = hasMeta ? computeRitmo(metas) : null;
 
   return (
     <Card padding={20} className="mb-5">
@@ -317,16 +318,31 @@ function MetasCard({ metas }: { metas: MetasData }) {
       </div>
 
       {hasMeta ? (
-        <div className="relative h-2 rounded-full bg-surface-2 overflow-visible">
-          <div
-            className={['h-full rounded-full transition-all', t.bar].join(' ')}
-            style={{ width: `${(fillWidth / 150) * 100}%` }}
-            aria-label={`Progreso ${pct}%`}
-          />
-          <TierMark percent={metas.tierThresholds.base * 100 / 150} label="70%" />
-          <TierMark percent={metas.tierThresholds.meta * 100 / 150} label="100%" />
-          <TierMark percent={metas.tierThresholds.elite * 100 / 150} label="130%" />
-        </div>
+        <>
+          <div className="relative h-2 rounded-full bg-surface-2 overflow-visible">
+            <div
+              className={['h-full rounded-full transition-all', t.bar].join(' ')}
+              style={{ width: `${(fillWidth / 150) * 100}%` }}
+              aria-label={`Progreso ${pct}%`}
+            />
+            <TierMark percent={metas.tierThresholds.base * 100 / 150} label="70%" />
+            <TierMark percent={metas.tierThresholds.meta * 100 / 150} label="100%" />
+            <TierMark percent={metas.tierThresholds.elite * 100 / 150} label="130%" />
+            {ritmo && ritmo.expectedPct < 100 && (
+              <TodayMark percent={(ritmo.expectedPct * 100) / 150} />
+            )}
+          </div>
+          {ritmo && (
+            <p className="mt-3 text-[12px] text-fg-2">
+              <span className="text-fg-3">Día {ritmo.dayOfMonth}/{ritmo.daysInMonth} · esperado </span>
+              <span className="font-medium text-fg">{formatMoney(ritmo.expected)}</span>
+              <span className="text-fg-3"> · </span>
+              <span className={ritmo.delta >= 0 ? 'text-ok-fg font-medium' : 'text-err-fg font-medium'}>
+                {ritmo.delta >= 0 ? 'Adelantado' : 'Atrasado'} {formatMoney(Math.abs(ritmo.delta))}
+              </span>
+            </p>
+          )}
+        </>
       ) : (
         <p className="text-fg-3 text-[12px]">
           Configura tu meta mensual desde el perfil para ver tu avance.
@@ -347,6 +363,52 @@ function MetasCard({ metas }: { metas: MetasData }) {
       </div>
     </Card>
   );
+}
+
+function TodayMark({ percent }: { percent: number }) {
+  return (
+    <div
+      className="absolute -top-1 -bottom-1 w-0.5 bg-accent rounded-full"
+      style={{ left: `${percent}%` }}
+      aria-hidden
+      title="Ritmo esperado para hoy"
+    />
+  );
+}
+
+interface Ritmo {
+  dayOfMonth: number;
+  daysInMonth: number;
+  expected: number;
+  expectedPct: number;
+  delta: number;
+}
+
+function computeRitmo(metas: MetasData): Ritmo | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(metas.period);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const monthIdx = Number(m[2]) - 1;
+
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth();
+
+  const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
+  let dayOfMonth: number;
+  if (year === currentYear && monthIdx === currentMonth) {
+    dayOfMonth = now.getUTCDate();
+  } else if (year < currentYear || (year === currentYear && monthIdx < currentMonth)) {
+    dayOfMonth = daysInMonth; // mes pasado: meta debería estar 100%
+  } else {
+    dayOfMonth = 0; // mes futuro: aún no debería haber nada
+  }
+
+  const expectedPct = (dayOfMonth / daysInMonth) * 100;
+  const expected = (metas.metaEconomica * dayOfMonth) / daysInMonth;
+  const delta = metas.acumuladoEconomico - expected;
+
+  return { dayOfMonth, daysInMonth, expected, expectedPct, delta };
 }
 
 function TierMark({ percent, label }: { percent: number; label: string }) {
