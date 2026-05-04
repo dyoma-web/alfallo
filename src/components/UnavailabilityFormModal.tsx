@@ -4,6 +4,8 @@ import { Modal } from './Modal';
 import { Field } from './Field';
 import { Btn } from './Btn';
 import { Icon } from './Icon';
+import { useConfirmDialog } from './ConfirmDialog';
+import { useToast } from './Toast';
 import { useApiMutation } from '../lib/useApiQuery';
 
 type RecurrenceType = 'none' | 'daily' | 'weekly';
@@ -51,6 +53,8 @@ export function UnavailabilityFormModal({ open, initialRule, onClose, onSaved }:
   const create = useApiMutation('createUnavailability');
   const update = useApiMutation('updateUnavailability');
   const remove = useApiMutation('deleteUnavailability');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
 
   // Días seleccionados (0=Dom, 1=Lun, ..., 6=Sáb)
   const [selectedDows, setSelectedDows] = useState<number[]>([]);
@@ -128,7 +132,11 @@ export function UnavailabilityFormModal({ open, initialRule, onClose, onSaved }:
 
   async function onSubmit(values: FormData) {
     if (values.recurrence === 'weekly' && selectedDows.length === 0) {
-      window.alert('Para recurrencia semanal, selecciona al menos un día.');
+      toast({
+        title: 'Selecciona al menos un día',
+        message: 'La recurrencia semanal necesita marcar los días que aplican.',
+        tone: 'error',
+      });
       return;
     }
 
@@ -136,7 +144,11 @@ export function UnavailabilityFormModal({ open, initialRule, onClose, onSaved }:
     const fechaFinUtc = new Date(`${values.fecha}T${values.horaFin}:00`).toISOString();
 
     if (new Date(fechaFinUtc) <= new Date(fechaInicioUtc)) {
-      window.alert('La hora fin debe ser posterior a la hora inicio.');
+      toast({
+        title: 'Hora inválida',
+        message: 'La hora fin debe ser posterior a la hora inicio.',
+        tone: 'error',
+      });
       return;
     }
 
@@ -168,11 +180,24 @@ export function UnavailabilityFormModal({ open, initialRule, onClose, onSaved }:
 
   async function onDelete() {
     if (!initialRule) return;
-    if (!window.confirm('¿Eliminar esta franja de no-disponibilidad?')) return;
+    const ok = await confirm({
+      title: 'Eliminar franja',
+      message: 'La franja de no-disponibilidad se borra junto con todas sus repeticiones futuras.',
+      confirmLabel: 'Eliminar',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await remove.mutate({ id: initialRule.id });
+      toast({ title: 'Franja eliminada', tone: 'success' });
       onSaved();
-    } catch { /* */ }
+    } catch (e) {
+      toast({
+        title: 'No se pudo eliminar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
   }
 
   if (!open) return null;
@@ -331,6 +356,7 @@ export function UnavailabilityFormModal({ open, initialRule, onClose, onSaved }:
           </Btn>
         </div>
       </form>
+      {confirmDialog}
     </Modal>
   );
 }

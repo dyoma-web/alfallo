@@ -7,6 +7,8 @@ import { Btn } from '../components/Btn';
 import { Icon } from '../components/Icon';
 import { StatusBadge, type StatusKind } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
+import { useConfirmDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 import { RegisterAttendanceModal } from '../components/RegisterAttendanceModal';
 import { CalendarView, type CalendarBooking, type UnavailabilityEvent as UnavailabilityEvt } from '../components/calendar/CalendarView';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
@@ -340,6 +342,8 @@ function BookingDetailTrainerModal({
   const confirmM = useApiMutation('confirmBooking');
   const rejectM = useApiMutation('rejectBooking');
   const cancelM = useApiMutation('cancelBooking');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
 
   const [confirmingReject, setConfirmingReject] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -370,11 +374,25 @@ function BookingDetailTrainerModal({
 
   async function handleCancel() {
     if (!booking) return;
-    if (!window.confirm('¿Cancelar esta sesión? El cliente recibirá una alerta.')) return;
+    const ok = await confirm({
+      title: 'Cancelar sesión',
+      message: 'El cliente recibirá una alerta y la franja queda libre. La acción no se puede deshacer.',
+      confirmLabel: 'Cancelar sesión',
+      cancelLabel: 'Volver',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await cancelM.mutate({ bookingId: booking.id });
+      toast({ title: 'Sesión cancelada', tone: 'success' });
       onAction();
-    } catch { /* */ }
+    } catch (e) {
+      toast({
+        title: 'No se pudo cancelar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
   }
 
   if (confirmingReject) {
@@ -497,6 +515,7 @@ function BookingDetailTrainerModal({
           </div>
         </div>
       </div>
+      {confirmDialog}
     </Modal>
   );
 }

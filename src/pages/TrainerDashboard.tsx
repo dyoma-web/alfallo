@@ -7,6 +7,8 @@ import { Icon } from '../components/Icon';
 import { StatusBadge, type StatusKind } from '../components/StatusBadge';
 import { CalendarView, type CalendarBooking } from '../components/calendar/CalendarView';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
+import { useConfirmDialog } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 import { useSession } from '../lib/store/session';
 import { formatDate, formatTime, formatRelative, greeting } from '../lib/datetime';
 
@@ -66,26 +68,44 @@ export default function TrainerDashboard() {
 
   const calBookings = useMemo(() => weekBookings ?? [], [weekBookings]);
 
-  const confirm = useApiMutation('confirmBooking');
+  const confirmM = useApiMutation('confirmBooking');
   const reject = useApiMutation('rejectBooking');
+  const { confirm: askConfirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
 
   async function handleConfirm(id: string) {
     try {
-      await confirm.mutate({ bookingId: id });
+      await confirmM.mutate({ bookingId: id });
+      toast({ title: 'Solicitud confirmada', tone: 'success' });
       void refetch();
-    } catch {
-      /* error en hook */
+    } catch (e) {
+      toast({
+        title: 'No se pudo confirmar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
     }
   }
 
   async function handleReject(id: string) {
-    if (!confirm.loading && window.confirm('¿Rechazar esta solicitud?')) {
-      try {
-        await reject.mutate({ bookingId: id });
-        void refetch();
-      } catch {
-        /* error en hook */
-      }
+    if (confirmM.loading) return;
+    const ok = await askConfirm({
+      title: 'Rechazar solicitud',
+      message: 'El cliente recibirá una alerta con el rechazo. La franja queda libre.',
+      confirmLabel: 'Rechazar',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await reject.mutate({ bookingId: id });
+      toast({ title: 'Solicitud rechazada', tone: 'success' });
+      void refetch();
+    } catch (e) {
+      toast({
+        title: 'No se pudo rechazar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
     }
   }
 
@@ -162,7 +182,7 @@ export default function TrainerDashboard() {
                       request={s}
                       onConfirm={() => handleConfirm(s.id)}
                       onReject={() => handleReject(s.id)}
-                      busy={confirm.loading || reject.loading}
+                      busy={confirmM.loading || reject.loading}
                     />
                   ))}
                 </ul>
@@ -213,6 +233,7 @@ export default function TrainerDashboard() {
           </>
         )}
       </div>
+      {confirmDialog}
     </AppShell>
   );
 }
