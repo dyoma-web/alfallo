@@ -155,11 +155,17 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'getTrainerMetas':
       return trainerGetMetas(payload, ctx);
 
-    case 'getTrainerMyMetas':
-      return trainerGetMyMetas(payload, ctx);
+    case 'listMyMetas':
+      return metasListMine(payload, ctx);
 
-    case 'updateTrainerMetas':
-      return trainerUpdateMetas(payload, ctx);
+    case 'createMyMeta':
+      return metasCreate(payload, ctx);
+
+    case 'updateMyMeta':
+      return metasUpdate(payload, ctx);
+
+    case 'deleteMyMeta':
+      return metasDelete(payload, ctx);
 
     // ── Admin (Iter 7) ──────────────────────────────────────────────────
     case 'getAdminDashboard':

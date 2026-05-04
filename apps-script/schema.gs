@@ -232,6 +232,15 @@ const SCHEMA = {
     'id', 'marca', 'tipo_solicitud', 'datos', 'estado',
     'resuelta_por', 'resuelta_at', 'created_at'
   ],
+
+  // Iter 14: metas mensuales del profesional. Varias metas por mes con nombre
+  // libre. Tipo=economica define el tier (suma de todas las económicas vs
+  // acumulado de planes vendidos). Tipo=usuarios y otra son informativas.
+  // Constraint lógica: (profesional_id, periodo, nombre) único.
+  metas_profesional: [
+    'id', 'profesional_id', 'periodo', 'nombre', 'tipo', 'valor',
+    'created_at', 'updated_at'
+  ],
 };
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-04T16:25:38.215Z                              ║
+ * ║  Built:   2026-05-04T16:57:25.274Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -249,6 +249,15 @@ const SCHEMA = {
   solicitudes_marca: [
     'id', 'marca', 'tipo_solicitud', 'datos', 'estado',
     'resuelta_por', 'resuelta_at', 'created_at'
+  ],
+
+  // Iter 14: metas mensuales del profesional. Varias metas por mes con nombre
+  // libre. Tipo=economica define el tier (suma de todas las económicas vs
+  // acumulado de planes vendidos). Tipo=usuarios y otra son informativas.
+  // Constraint lógica: (profesional_id, periodo, nombre) único.
+  metas_profesional: [
+    'id', 'profesional_id', 'periodo', 'nombre', 'tipo', 'valor',
+    'created_at', 'updated_at'
   ],
 };
 
@@ -3125,12 +3134,12 @@ function trainerGetUserProfile(payload, ctx) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// trainerGetMetas — meta económica + tier (Iter 14)
+// trainerGetMetas — progreso económico + tier del periodo (Iter 14b)
 // Periodo default: mes en curso. payload.period = 'YYYY-MM' opcional.
 //
-// Tiers (umbrales fijos sobre meta económica):
+// Tiers (umbrales fijos sobre la SUMA de metas tipo=economica del periodo):
 //   base   ≥ 70%   meta   ≥ 100%   elite  ≥ 130%
-// Por debajo de 70% → 'pendiente'. Sin meta configurada → 'sin_meta'.
+// Por debajo de 70% → 'pendiente'. Sin meta económica → 'sin_meta'.
 // ──────────────────────────────────────────────────────────────────────────
 
 const TRAINER_METAS_TIERS = {
@@ -3158,9 +3167,9 @@ function trainerGetMetas(payload, ctx) {
   const periodEnd = new Date(Date.UTC(year, monthIdx + 1, 1));
   const periodLabel = String(year) + '-' + String(monthIdx + 1).padStart(2, '0');
 
-  const perfil = dbFindBy('entrenadores_perfil', 'user_id', trainerId);
-  const metaEconomica = perfil ? Number(perfil.meta_economica_mensual) || 0 : 0;
-  const metaUsuarios = perfil ? Number(perfil.meta_usuarios_activos) || 0 : 0;
+  // Meta económica = suma de metas tipo=economica del periodo (Iter 14b)
+  const metaEconomica = metas_getTotalEconomica_(trainerId, periodLabel);
+  const metaUsuarios = metas_getTotalUsuarios_(trainerId, periodLabel);
 
   const planesPeriodo = dbListAll('planes_usuario', function (p) {
     if (p.entrenador_id !== trainerId) return false;
@@ -3202,67 +3211,6 @@ function trainerGetMetas(payload, ctx) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// trainerUpdateMetas — el propio trainer setea sus metas mensuales (Iter 14)
-// ──────────────────────────────────────────────────────────────────────────
-
-function trainerUpdateMetas(payload, ctx) {
-  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
-    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
-  }
-  const trainerId = ctx.userId;
-
-  if (payload.metaEconomicaMensual == null && payload.metaUsuariosActivos == null) {
-    throw _err('VALIDATION', 'Envía al menos una meta a actualizar');
-  }
-
-  const existing = dbFindById('entrenadores_perfil', trainerId);
-  if (!existing) {
-    throw _err('NOT_FOUND',
-      'No tienes perfil profesional. Pide al admin que lo cree antes de configurar metas.');
-  }
-
-  const patch = { updated_at: dbNowUtc() };
-  if (payload.metaEconomicaMensual != null) {
-    patch.meta_economica_mensual = Math.max(0, Number(payload.metaEconomicaMensual) || 0);
-  }
-  if (payload.metaUsuariosActivos != null) {
-    patch.meta_usuarios_activos = Math.max(0, Math.floor(Number(payload.metaUsuariosActivos) || 0));
-  }
-
-  const result = dbUpdateById('entrenadores_perfil', trainerId, patch);
-
-  auditOk(ctx.userId, 'update_trainer_metas', 'entrenadores_perfil', trainerId,
-    JSON.stringify({
-      meta_economica_mensual: existing.meta_economica_mensual,
-      meta_usuarios_activos: existing.meta_usuarios_activos,
-    }),
-    JSON.stringify(patch),
-    ctx.reqMeta);
-
-  return {
-    metaEconomica: Number(result.meta_economica_mensual) || 0,
-    metaUsuarios: Number(result.meta_usuarios_activos) || 0,
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// trainerGetMyMetas — el trainer consulta sus metas configuradas (Iter 14)
-// Distinto de trainerGetMetas (que devuelve avance del periodo).
-// ──────────────────────────────────────────────────────────────────────────
-
-function trainerGetMyMetas(_payload, ctx) {
-  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
-    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
-  }
-  const perfil = dbFindById('entrenadores_perfil', ctx.userId);
-  return {
-    metaEconomica: perfil ? Number(perfil.meta_economica_mensual) || 0 : 0,
-    metaUsuarios: perfil ? Number(perfil.meta_usuarios_activos) || 0 : 0,
-    hasProfile: !!perfil,
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -3276,6 +3224,243 @@ function trainer_endOfDayUtc_(date) {
   const d = new Date(date);
   d.setHours(23, 59, 59, 999);
   return d;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// metas.gs
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * metas.gs — Metas mensuales del profesional (Iter 14b).
+ *
+ * Cada profesional puede tener varias metas en el mismo periodo (mes).
+ * Cada meta tiene nombre libre, tipo (economica/usuarios/otra) y valor.
+ *
+ * Constraint lógica: (profesional_id, periodo, nombre) único. Se valida en
+ * memoria antes de insertar/actualizar.
+ *
+ * El tier del trainer se calcula sobre la suma de metas tipo=economica del
+ * periodo (ver trainerGetMetas en trainer.gs).
+ */
+
+const META_TIPOS = ['economica', 'usuarios', 'otra'];
+
+// ──────────────────────────────────────────────────────────────────────────
+// Helpers de periodo
+// ──────────────────────────────────────────────────────────────────────────
+
+function metas_normalizePeriod_(periodInput) {
+  const re = /^(\d{4})-(\d{2})$/;
+  if (periodInput) {
+    const m = re.exec(String(periodInput));
+    if (!m) throw _err('VALIDATION', 'period inválido — formato YYYY-MM');
+    const month = Number(m[2]);
+    if (month < 1 || month > 12) {
+      throw _err('VALIDATION', 'period inválido — mes fuera de rango');
+    }
+    return m[1] + '-' + m[2];
+  }
+  const now = new Date();
+  return now.getUTCFullYear() + '-' + String(now.getUTCMonth() + 1).padStart(2, '0');
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// listMyMetas — metas del trainer logueado en un periodo
+// ──────────────────────────────────────────────────────────────────────────
+
+function metasListMine(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const periodo = metas_normalizePeriod_(payload && payload.period);
+  const trainerId = ctx.userId;
+
+  const items = dbListAll('metas_profesional', function (m) {
+    return m.profesional_id === trainerId && m.periodo === periodo;
+  });
+  items.sort(function (a, b) {
+    return String(a.created_at).localeCompare(String(b.created_at));
+  });
+
+  return {
+    period: periodo,
+    items: items.map(function (m) {
+      return {
+        id: m.id,
+        profesionalId: m.profesional_id,
+        periodo: m.periodo,
+        nombre: m.nombre,
+        tipo: m.tipo,
+        valor: Number(m.valor) || 0,
+        createdAt: m.created_at,
+        updatedAt: m.updated_at,
+      };
+    }),
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// createMyMeta — crea con validación de unicidad por (trainer, periodo, nombre)
+// ──────────────────────────────────────────────────────────────────────────
+
+function metasCreate(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const trainerId = ctx.userId;
+  const nombre = vString(vRequired(payload.nombre, 'nombre'), 'nombre', { min: 2, max: 80 });
+  const tipo = vEnum(payload.tipo, 'tipo', META_TIPOS);
+  const valor = vNumber(vRequired(payload.valor, 'valor'), 'valor', { min: 0 });
+  const periodo = metas_normalizePeriod_(payload.period);
+
+  const dup = dbListAll('metas_profesional', function (m) {
+    return m.profesional_id === trainerId
+      && m.periodo === periodo
+      && String(m.nombre).toLowerCase() === nombre.toLowerCase();
+  });
+  if (dup.length > 0) {
+    throw _err('META_DUPLICATE', 'Ya tienes una meta con ese nombre en ' + periodo);
+  }
+
+  const id = cryptoUuid();
+  const now = dbNowUtc();
+  const meta = {
+    id: id,
+    profesional_id: trainerId,
+    periodo: periodo,
+    nombre: nombre,
+    tipo: tipo,
+    valor: valor,
+    created_at: now,
+    updated_at: now,
+  };
+  dbInsert('metas_profesional', meta);
+
+  auditOk(ctx.userId, 'create_meta', 'metas_profesional', id,
+    '', JSON.stringify({ periodo: periodo, nombre: nombre, tipo: tipo, valor: valor }),
+    ctx.reqMeta);
+
+  return { meta: meta };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// updateMyMeta — solo nombre y valor son editables
+// ──────────────────────────────────────────────────────────────────────────
+
+function metasUpdate(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const id = vUuid(vRequired(payload.id, 'id'), 'id');
+  const before = dbFindById('metas_profesional', id);
+  if (!before) throw _err('NOT_FOUND', 'Meta no encontrada');
+
+  if (before.profesional_id !== ctx.userId
+    && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'No es tu meta');
+  }
+
+  if (payload.nombre == null && payload.valor == null) {
+    throw _err('VALIDATION', 'Envía al menos nombre o valor a actualizar');
+  }
+
+  const patch = { updated_at: dbNowUtc() };
+
+  if (payload.nombre != null) {
+    const nuevoNombre = vString(payload.nombre, 'nombre', { min: 2, max: 80 });
+    if (nuevoNombre.toLowerCase() !== String(before.nombre).toLowerCase()) {
+      const dup = dbListAll('metas_profesional', function (m) {
+        return m.profesional_id === before.profesional_id
+          && m.periodo === before.periodo
+          && m.id !== id
+          && String(m.nombre).toLowerCase() === nuevoNombre.toLowerCase();
+      });
+      if (dup.length > 0) {
+        throw _err('META_DUPLICATE', 'Ya tienes una meta con ese nombre en ' + before.periodo);
+      }
+    }
+    patch.nombre = nuevoNombre;
+  }
+
+  if (payload.valor != null) {
+    patch.valor = vNumber(payload.valor, 'valor', { min: 0 });
+  }
+
+  const updated = dbUpdateById('metas_profesional', id, patch);
+
+  auditOk(ctx.userId, 'update_meta', 'metas_profesional', id,
+    JSON.stringify({ nombre: before.nombre, valor: before.valor }),
+    JSON.stringify(patch),
+    ctx.reqMeta);
+
+  return { meta: updated };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// deleteMyMeta — borrado físico (no hay soft delete para metas)
+// ──────────────────────────────────────────────────────────────────────────
+
+function metasDelete(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
+  }
+  const id = vUuid(vRequired(payload.id, 'id'), 'id');
+  const meta = dbFindById('metas_profesional', id);
+  if (!meta) throw _err('NOT_FOUND', 'Meta no encontrada');
+
+  if (meta.profesional_id !== ctx.userId
+    && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'No es tu meta');
+  }
+
+  // Borrado físico — buscar la fila por PK y eliminarla
+  const sheet = db_getSheet_('metas_profesional');
+  const headers = db_getHeaders_(sheet);
+  const pkIdx = headers.indexOf('id');
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    const data = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][pkIdx]) === String(id)) {
+        sheet.deleteRow(i + 2);
+        break;
+      }
+    }
+  }
+
+  auditOk(ctx.userId, 'delete_meta', 'metas_profesional', id,
+    JSON.stringify({ nombre: meta.nombre, valor: meta.valor }), '',
+    ctx.reqMeta);
+
+  return { ok: true };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// metasGetTotalEconomica_ — helper interno para el cálculo del tier
+// Devuelve la suma de valores de metas tipo=economica del trainer/periodo.
+// ──────────────────────────────────────────────────────────────────────────
+
+function metas_getTotalEconomica_(trainerId, periodo) {
+  const items = dbListAll('metas_profesional', function (m) {
+    return m.profesional_id === trainerId
+      && m.periodo === periodo
+      && m.tipo === 'economica';
+  });
+  return items.reduce(function (sum, m) {
+    return sum + (Number(m.valor) || 0);
+  }, 0);
+}
+
+function metas_getTotalUsuarios_(trainerId, periodo) {
+  const items = dbListAll('metas_profesional', function (m) {
+    return m.profesional_id === trainerId
+      && m.periodo === periodo
+      && m.tipo === 'usuarios';
+  });
+  return items.reduce(function (sum, m) {
+    return sum + (Number(m.valor) || 0);
+  }, 0);
 }
 
 
@@ -5495,11 +5680,17 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'getTrainerMetas':
       return trainerGetMetas(payload, ctx);
 
-    case 'getTrainerMyMetas':
-      return trainerGetMyMetas(payload, ctx);
+    case 'listMyMetas':
+      return metasListMine(payload, ctx);
 
-    case 'updateTrainerMetas':
-      return trainerUpdateMetas(payload, ctx);
+    case 'createMyMeta':
+      return metasCreate(payload, ctx);
+
+    case 'updateMyMeta':
+      return metasUpdate(payload, ctx);
+
+    case 'deleteMyMeta':
+      return metasDelete(payload, ctx);
 
     // ── Admin (Iter 7) ──────────────────────────────────────────────────
     case 'getAdminDashboard':

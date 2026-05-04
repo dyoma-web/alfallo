@@ -32,6 +32,7 @@ const ORDER = [
   'dashboard.gs',
   'bookings.gs',
   'trainer.gs',
+  'metas.gs',
   'admin.gs',
   'gimnasios.gs',
   'solicitudes.gs',

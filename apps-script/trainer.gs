@@ -282,12 +282,12 @@ function trainerGetUserProfile(payload, ctx) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// trainerGetMetas — meta económica + tier (Iter 14)
+// trainerGetMetas — progreso económico + tier del periodo (Iter 14b)
 // Periodo default: mes en curso. payload.period = 'YYYY-MM' opcional.
 //
-// Tiers (umbrales fijos sobre meta económica):
+// Tiers (umbrales fijos sobre la SUMA de metas tipo=economica del periodo):
 //   base   ≥ 70%   meta   ≥ 100%   elite  ≥ 130%
-// Por debajo de 70% → 'pendiente'. Sin meta configurada → 'sin_meta'.
+// Por debajo de 70% → 'pendiente'. Sin meta económica → 'sin_meta'.
 // ──────────────────────────────────────────────────────────────────────────
 
 const TRAINER_METAS_TIERS = {
@@ -315,9 +315,9 @@ function trainerGetMetas(payload, ctx) {
   const periodEnd = new Date(Date.UTC(year, monthIdx + 1, 1));
   const periodLabel = String(year) + '-' + String(monthIdx + 1).padStart(2, '0');
 
-  const perfil = dbFindBy('entrenadores_perfil', 'user_id', trainerId);
-  const metaEconomica = perfil ? Number(perfil.meta_economica_mensual) || 0 : 0;
-  const metaUsuarios = perfil ? Number(perfil.meta_usuarios_activos) || 0 : 0;
+  // Meta económica = suma de metas tipo=economica del periodo (Iter 14b)
+  const metaEconomica = metas_getTotalEconomica_(trainerId, periodLabel);
+  const metaUsuarios = metas_getTotalUsuarios_(trainerId, periodLabel);
 
   const planesPeriodo = dbListAll('planes_usuario', function (p) {
     if (p.entrenador_id !== trainerId) return false;
@@ -355,67 +355,6 @@ function trainerGetMetas(payload, ctx) {
     tier: tier,
     tierThresholds: TRAINER_METAS_TIERS,
     planesContados: planesPeriodo.length,
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// trainerUpdateMetas — el propio trainer setea sus metas mensuales (Iter 14)
-// ──────────────────────────────────────────────────────────────────────────
-
-function trainerUpdateMetas(payload, ctx) {
-  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
-    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
-  }
-  const trainerId = ctx.userId;
-
-  if (payload.metaEconomicaMensual == null && payload.metaUsuariosActivos == null) {
-    throw _err('VALIDATION', 'Envía al menos una meta a actualizar');
-  }
-
-  const existing = dbFindById('entrenadores_perfil', trainerId);
-  if (!existing) {
-    throw _err('NOT_FOUND',
-      'No tienes perfil profesional. Pide al admin que lo cree antes de configurar metas.');
-  }
-
-  const patch = { updated_at: dbNowUtc() };
-  if (payload.metaEconomicaMensual != null) {
-    patch.meta_economica_mensual = Math.max(0, Number(payload.metaEconomicaMensual) || 0);
-  }
-  if (payload.metaUsuariosActivos != null) {
-    patch.meta_usuarios_activos = Math.max(0, Math.floor(Number(payload.metaUsuariosActivos) || 0));
-  }
-
-  const result = dbUpdateById('entrenadores_perfil', trainerId, patch);
-
-  auditOk(ctx.userId, 'update_trainer_metas', 'entrenadores_perfil', trainerId,
-    JSON.stringify({
-      meta_economica_mensual: existing.meta_economica_mensual,
-      meta_usuarios_activos: existing.meta_usuarios_activos,
-    }),
-    JSON.stringify(patch),
-    ctx.reqMeta);
-
-  return {
-    metaEconomica: Number(result.meta_economica_mensual) || 0,
-    metaUsuarios: Number(result.meta_usuarios_activos) || 0,
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// trainerGetMyMetas — el trainer consulta sus metas configuradas (Iter 14)
-// Distinto de trainerGetMetas (que devuelve avance del periodo).
-// ──────────────────────────────────────────────────────────────────────────
-
-function trainerGetMyMetas(_payload, ctx) {
-  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
-    throw _err('FORBIDDEN', 'Solo entrenadores y admin');
-  }
-  const perfil = dbFindById('entrenadores_perfil', ctx.userId);
-  return {
-    metaEconomica: perfil ? Number(perfil.meta_economica_mensual) || 0 : 0,
-    metaUsuarios: perfil ? Number(perfil.meta_usuarios_activos) || 0 : 0,
-    hasProfile: !!perfil,
   };
 }
 

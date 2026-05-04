@@ -8,6 +8,7 @@ import { Field as Input } from '../components/Field';
 import { Icon } from '../components/Icon';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { useToast } from '../components/Toast';
+import { useConfirmDialog } from '../components/ConfirmDialog';
 import { useSession, type SessionUser } from '../lib/store/session';
 import { config } from '../lib/config';
 
@@ -212,51 +213,79 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-interface TrainerMyMetas {
-  metaEconomica: number;
-  metaUsuarios: number;
-  hasProfile: boolean;
+type MetaTipo = 'economica' | 'usuarios' | 'otra';
+
+interface MetaItem {
+  id: string;
+  profesionalId: string;
+  periodo: string;
+  nombre: string;
+  tipo: MetaTipo;
+  valor: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-interface MetasForm {
-  metaEconomicaMensual: string;
-  metaUsuariosActivos: string;
+interface MetasResponse {
+  period: string;
+  items: MetaItem[];
+}
+
+const TIPO_LABEL: Record<MetaTipo, string> = {
+  economica: 'Económica',
+  usuarios: 'Usuarios',
+  otra: 'Otra',
+};
+
+function currentPeriod(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatPeriodSpanish(period: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!m) return period;
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, 1);
+  try {
+    return new Intl.DateTimeFormat(config.locale, {
+      month: 'long',
+      year: 'numeric',
+    }).format(date);
+  } catch {
+    return period;
+  }
 }
 
 function TrainerMetasSection() {
   const toast = useToast();
-  const { data: metas, loading, error, refetch } = useApiQuery<TrainerMyMetas>('getTrainerMyMetas');
-  const update = useApiMutation('updateTrainerMetas');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const period = currentPeriod();
+  const { data, loading, error, refetch } = useApiQuery<MetasResponse>(
+    'listMyMetas',
+    { period }
+  );
+  const create = useApiMutation('createMyMeta');
+  const update = useApiMutation('updateMyMeta');
+  const remove = useApiMutation('deleteMyMeta');
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { isDirty },
-  } = useForm<MetasForm>({
-    defaultValues: { metaEconomicaMensual: '', metaUsuariosActivos: '' },
-  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
 
-  useEffect(() => {
-    if (metas) {
-      reset({
-        metaEconomicaMensual: metas.metaEconomica > 0 ? String(metas.metaEconomica) : '',
-        metaUsuariosActivos: metas.metaUsuarios > 0 ? String(metas.metaUsuarios) : '',
-      });
-    }
-  }, [metas, reset]);
-
-  async function onSubmit(values: MetasForm) {
+  async function handleDelete(id: string, nombre: string) {
+    const ok = await confirm({
+      title: 'Eliminar meta',
+      message: `Se eliminará la meta "${nombre}". Esta acción no se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
-      await update.mutate({
-        metaEconomicaMensual: Number(values.metaEconomicaMensual) || 0,
-        metaUsuariosActivos: Number(values.metaUsuariosActivos) || 0,
-      });
-      toast({ title: 'Metas actualizadas', tone: 'success' });
+      await remove.mutate({ id });
+      toast({ title: 'Meta eliminada', tone: 'success' });
       void refetch();
     } catch (e) {
       toast({
-        title: 'No se pudieron guardar',
+        title: 'No se pudo eliminar',
         message: e instanceof Error ? e.message : undefined,
         tone: 'error',
       });
@@ -266,59 +295,275 @@ function TrainerMetasSection() {
   return (
     <Card padding={20} className="mt-4">
       <div className="flex items-center justify-between mb-3 gap-2">
-        <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
-          Metas mensuales
+        <div>
+          <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
+            Metas — {formatPeriodSpanish(period)}
+          </div>
+          <p className="text-fg-3 text-[11px] mt-0.5">
+            El tier se calcula sumando todas las metas de tipo Económica.
+          </p>
         </div>
         <Icon name="trophy" size={14} color="#A8B0A4" />
       </div>
 
-      {loading && (
-        <div className="text-fg-3 text-[12px]">Cargando...</div>
-      )}
+      {loading && <div className="text-fg-3 text-[12px]">Cargando...</div>}
 
       {error && !loading && (
         <p className="text-err-fg text-[12px]">{error.message}</p>
       )}
 
-      {metas && !metas.hasProfile && (
-        <p className="text-fg-3 text-[12px]">
-          Aún no tienes perfil profesional. Pide al admin que lo cree para configurar tus metas.
+      {data && data.items.length === 0 && !showAdd && (
+        <p className="text-fg-3 text-[12px] mb-3">
+          Aún no tienes metas para este mes.
         </p>
       )}
 
-      {metas && metas.hasProfile && (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-          <p className="text-fg-3 text-[12px] mb-2">
-            Tu tier (Base / Meta / Elite) se calcula sobre estos valores. Moneda: {config.currency}.
-          </p>
-
-          <Input
-            label="Meta económica mensual"
-            type="number"
-            min={0}
-            step={10000}
-            placeholder="5000000"
-            hint="Total de planes vendidos al mes (en pesos). Deja 0 si no quieres meta."
-            {...register('metaEconomicaMensual')}
-          />
-
-          <Input
-            label="Meta de usuarios activos"
-            type="number"
-            min={0}
-            step={1}
-            placeholder="20"
-            hint="Cuántos clientes activos quieres mantener."
-            {...register('metaUsuariosActivos')}
-          />
-
-          <Btn type="submit" size="md" disabled={!isDirty || update.loading}>
-            {update.loading ? 'Guardando...' : 'Guardar metas'}
-          </Btn>
-        </form>
+      {data && data.items.length > 0 && (
+        <ul className="space-y-2 mb-3">
+          {data.items.map((m) =>
+            editingId === m.id ? (
+              <MetaEditRow
+                key={m.id}
+                meta={m}
+                busy={update.loading}
+                onCancel={() => setEditingId(null)}
+                onSave={async (patch) => {
+                  try {
+                    await update.mutate({ id: m.id, ...patch });
+                    toast({ title: 'Meta actualizada', tone: 'success' });
+                    setEditingId(null);
+                    void refetch();
+                  } catch (e) {
+                    toast({
+                      title: 'No se pudo guardar',
+                      message: e instanceof Error ? e.message : undefined,
+                      tone: 'error',
+                    });
+                  }
+                }}
+              />
+            ) : (
+              <MetaDisplayRow
+                key={m.id}
+                meta={m}
+                busy={remove.loading}
+                onEdit={() => setEditingId(m.id)}
+                onDelete={() => handleDelete(m.id, m.nombre)}
+              />
+            )
+          )}
+        </ul>
       )}
+
+      {showAdd ? (
+        <MetaAddForm
+          busy={create.loading}
+          onCancel={() => setShowAdd(false)}
+          onSave={async (values) => {
+            try {
+              await create.mutate({ ...values, period });
+              toast({ title: 'Meta creada', tone: 'success' });
+              setShowAdd(false);
+              void refetch();
+            } catch (e) {
+              toast({
+                title: 'No se pudo crear',
+                message: e instanceof Error ? e.message : undefined,
+                tone: 'error',
+              });
+            }
+          }}
+        />
+      ) : (
+        <Btn
+          variant="secondary"
+          size="sm"
+          icon="plus"
+          onClick={() => setShowAdd(true)}
+        >
+          Agregar meta
+        </Btn>
+      )}
+      {confirmDialog}
     </Card>
   );
+}
+
+function MetaDisplayRow({
+  meta,
+  busy,
+  onEdit,
+  onDelete,
+}: {
+  meta: MetaItem;
+  busy: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <li className="flex items-center gap-3 bg-surface-2 border border-line rounded-xl p-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-sm">{meta.nombre}</span>
+          <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-surface border border-line text-fg-3">
+            {TIPO_LABEL[meta.tipo]}
+          </span>
+        </div>
+        <div className="text-fg-2 text-[12px] mt-0.5">
+          {meta.tipo === 'economica'
+            ? formatMetaMoney(meta.valor)
+            : meta.valor.toLocaleString(config.locale)}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={busy}
+        className="text-[12px] text-fg-2 hover:text-fg disabled:opacity-50"
+      >
+        Editar
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={busy}
+        className="text-[12px] text-fg-3 hover:text-err-fg disabled:opacity-50"
+      >
+        Eliminar
+      </button>
+    </li>
+  );
+}
+
+function MetaEditRow({
+  meta,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  meta: MetaItem;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (patch: { nombre: string; valor: number }) => Promise<void>;
+}) {
+  const [nombre, setNombre] = useState(meta.nombre);
+  const [valor, setValor] = useState(String(meta.valor));
+
+  const dirty = nombre.trim() !== meta.nombre || Number(valor) !== meta.valor;
+
+  return (
+    <li className="bg-surface-2 border border-accent/30 rounded-xl p-3 space-y-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <Input
+          label="Nombre"
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+        />
+        <Input
+          label="Valor"
+          type="number"
+          min={0}
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={onCancel} disabled={busy}>
+          Cancelar
+        </Btn>
+        <Btn
+          size="sm"
+          disabled={busy || !dirty || nombre.trim().length < 2}
+          onClick={() =>
+            void onSave({ nombre: nombre.trim(), valor: Number(valor) || 0 })
+          }
+        >
+          {busy ? 'Guardando...' : 'Guardar'}
+        </Btn>
+      </div>
+    </li>
+  );
+}
+
+function MetaAddForm({
+  busy,
+  onCancel,
+  onSave,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (values: { nombre: string; tipo: MetaTipo; valor: number }) => Promise<void>;
+}) {
+  const [nombre, setNombre] = useState('');
+  const [tipo, setTipo] = useState<MetaTipo>('economica');
+  const [valor, setValor] = useState('');
+
+  const valid = nombre.trim().length >= 2 && Number(valor) >= 0;
+
+  return (
+    <div className="bg-surface-2 border border-line rounded-xl p-3 space-y-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <Input
+          label="Nombre"
+          placeholder="Ej. Meta personalizado"
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+        />
+        <div>
+          <label className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-1.5">
+            Tipo
+          </label>
+          <select
+            value={tipo}
+            onChange={(e) => setTipo(e.target.value as MetaTipo)}
+            className="w-full h-10 px-3 rounded-lg bg-surface border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60"
+          >
+            <option value="economica">Económica</option>
+            <option value="usuarios">Usuarios</option>
+            <option value="otra">Otra</option>
+          </select>
+        </div>
+        <Input
+          label="Valor"
+          type="number"
+          min={0}
+          placeholder={tipo === 'economica' ? '5000000' : '20'}
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={onCancel} disabled={busy}>
+          Cancelar
+        </Btn>
+        <Btn
+          size="sm"
+          disabled={busy || !valid}
+          onClick={() =>
+            void onSave({
+              nombre: nombre.trim(),
+              tipo,
+              valor: Number(valor) || 0,
+            })
+          }
+        >
+          {busy ? 'Guardando...' : 'Crear meta'}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+function formatMetaMoney(amount: number): string {
+  try {
+    return new Intl.NumberFormat(config.locale, {
+      style: 'currency',
+      currency: config.currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${amount.toLocaleString()} ${config.currency}`;
+  }
 }
 
 function Avatar({ nombres, apellidos }: { nombres: string; apellidos: string }) {
