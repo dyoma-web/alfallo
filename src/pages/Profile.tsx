@@ -271,6 +271,11 @@ function TrainerMetasSection() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
 
+  // DEBUG — log estado de la query a consola
+  useEffect(() => {
+    console.log('[DEBUG TrainerMetasSection] period=', period, 'loading=', loading, 'error=', error, 'data=', data); // DEBUG
+  }, [period, loading, error, data]);
+
   async function handleDelete(id: string, nombre: string) {
     const ok = await confirm({
       title: 'Eliminar meta',
@@ -280,10 +285,13 @@ function TrainerMetasSection() {
     });
     if (!ok) return;
     try {
-      await remove.mutate({ id });
+      console.log('[DEBUG deleteMyMeta] enviando id=', id); // DEBUG
+      const res = await remove.mutate({ id });
+      console.log('[DEBUG deleteMyMeta] respuesta=', res); // DEBUG
       toast({ title: 'Meta eliminada', tone: 'success' });
       void refetch();
     } catch (e) {
+      console.error('[DEBUG deleteMyMeta] error=', e); // DEBUG
       toast({
         title: 'No se pudo eliminar',
         message: e instanceof Error ? e.message : undefined,
@@ -309,7 +317,14 @@ function TrainerMetasSection() {
       {loading && <div className="text-fg-3 text-[12px]">Cargando...</div>}
 
       {error && !loading && (
-        <p className="text-err-fg text-[12px]">{error.message}</p>
+        <div className="bg-err/10 border border-err/30 rounded-lg p-3 mb-3">
+          <p className="text-err-fg text-[12px] font-mono">
+            <strong>Error al cargar metas:</strong> {error.message}
+          </p>
+          <p className="text-err-fg text-[11px] mt-1">
+            Código: {error.code ?? '(sin código)'}. Revisa la consola del navegador y los logs de Apps Script.
+          </p>
+        </div>
       )}
 
       {data && data.items.length === 0 && !showAdd && (
@@ -361,11 +376,14 @@ function TrainerMetasSection() {
           onCancel={() => setShowAdd(false)}
           onSave={async (values) => {
             try {
-              await create.mutate({ ...values, period });
+              console.log('[DEBUG createMyMeta] enviando=', { ...values, period }); // DEBUG
+              const res = await create.mutate({ ...values, period });
+              console.log('[DEBUG createMyMeta] respuesta=', res); // DEBUG
               toast({ title: 'Meta creada', tone: 'success' });
               setShowAdd(false);
               void refetch();
             } catch (e) {
+              console.error('[DEBUG createMyMeta] error=', e); // DEBUG
               toast({
                 title: 'No se pudo crear',
                 message: e instanceof Error ? e.message : undefined,
