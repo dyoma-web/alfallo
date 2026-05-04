@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-04T23:17:50.930Z                              ║
+ * ║  Built:   2026-05-04T23:21:13.915Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -3300,19 +3300,16 @@ function metas_ensurePeriodoTextFormat_() {
 // ──────────────────────────────────────────────────────────────────────────
 
 function metasListMine(payload, ctx) {
-  Logger.log('[DEBUG metasListMine] payload=' + JSON.stringify(payload) + ' userId=' + ctx.userId + ' role=' + ctx.role); // DEBUG
   if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
     throw _err('FORBIDDEN', 'Solo entrenadores y admin');
   }
   const periodo = metas_normalizePeriod_(payload && payload.period);
   const trainerId = ctx.userId;
-  Logger.log('[DEBUG metasListMine] periodo resuelto=' + periodo + ' trainerId=' + trainerId); // DEBUG
 
   const items = dbListAll('metas_profesional', function (m) {
     return m.profesional_id === trainerId
       && metas_periodoToString_(m.periodo) === periodo;
   });
-  Logger.log('[DEBUG metasListMine] items.length=' + items.length); // DEBUG
   items.sort(function (a, b) {
     return String(a.created_at).localeCompare(String(b.created_at));
   });
@@ -3339,7 +3336,6 @@ function metasListMine(payload, ctx) {
 // ──────────────────────────────────────────────────────────────────────────
 
 function metasCreate(payload, ctx) {
-  Logger.log('[DEBUG metasCreate] payload=' + JSON.stringify(payload) + ' userId=' + ctx.userId + ' role=' + ctx.role); // DEBUG
   if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
     throw _err('FORBIDDEN', 'Solo entrenadores y admin');
   }
@@ -3348,7 +3344,6 @@ function metasCreate(payload, ctx) {
   const tipo = vEnum(payload.tipo, 'tipo', META_TIPOS);
   const valor = vNumber(vRequired(payload.valor, 'valor'), 'valor', { min: 0 });
   const periodo = metas_normalizePeriod_(payload.period);
-  Logger.log('[DEBUG metasCreate] validados nombre=' + nombre + ' tipo=' + tipo + ' valor=' + valor + ' periodo=' + periodo); // DEBUG
 
   const dup = dbListAll('metas_profesional', function (m) {
     return m.profesional_id === trainerId
@@ -3375,7 +3370,6 @@ function metasCreate(payload, ctx) {
   // Forzar formato texto en la columna periodo para evitar que Sheets
   // autoconvierta "2026-05" a Date object.
   metas_ensurePeriodoTextFormat_();
-  Logger.log('[DEBUG metasCreate] insertado id=' + id); // DEBUG
 
   auditOk(ctx.userId, 'create_meta', 'metas_profesional', id,
     '', JSON.stringify({ periodo: periodo, nombre: nombre, tipo: tipo, valor: valor }),
@@ -3503,91 +3497,6 @@ function metas_getTotalUsuarios_(trainerId, periodo) {
   return items.reduce(function (sum, m) {
     return sum + (Number(m.valor) || 0);
   }, 0);
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// DEBUG — ejecutar desde el editor para diagnosticar el flujo CRUD aislado.
-// Usa el email de Andrea (seedDevData) o el primer trainer activo. Crea +
-// lista + actualiza + borra una meta de prueba. Imprime cada paso.
-// QUITAR esta función cuando se resuelva el problema.
-// ──────────────────────────────────────────────────────────────────────────
-function metas_debugTest() {
-  Logger.log('=== METAS DEBUG TEST ===');
-
-  // 0. Verificar que la hoja existe
-  try {
-    const sh = db_getSheet_('metas_profesional');
-    Logger.log('✓ Hoja metas_profesional existe. Filas actuales: ' + sh.getLastRow());
-  } catch (e) {
-    Logger.log('✗ Hoja metas_profesional NO existe: ' + e.message);
-    Logger.log('  → Ejecuta bootstrap() primero para crearla.');
-    return { ok: false, reason: 'sheet_missing' };
-  }
-
-  // 1. Resolver un trainerId real
-  let trainerId = dbIndexLookup('email', 'andrea.entrenadora@alfallo.test');
-  if (!trainerId) {
-    const trainers = dbListAll('usuarios', function (u) {
-      return u.rol === 'trainer' && u.estado === 'active';
-    });
-    if (trainers.length === 0) {
-      Logger.log('✗ No hay ningún trainer activo en el sheet.');
-      return { ok: false, reason: 'no_trainer' };
-    }
-    trainerId = trainers[0].id;
-    Logger.log('• Usando trainer: ' + trainers[0].email);
-  } else {
-    Logger.log('• Usando trainer seed: andrea.entrenadora@alfallo.test');
-  }
-
-  const ctx = { userId: trainerId, role: 'trainer', reqMeta: {} };
-
-  // 2. CREATE
-  Logger.log('--- CREATE ---');
-  let createdId;
-  try {
-    const created = metasCreate({
-      nombre: '__debug_test_' + Date.now(),
-      tipo: 'economica',
-      valor: 12345,
-    }, ctx);
-    createdId = created.meta.id;
-    Logger.log('✓ CREATE ok id=' + createdId);
-  } catch (e) {
-    Logger.log('✗ CREATE FALLÓ: ' + e.message);
-    return { ok: false, reason: 'create_failed', error: e.message };
-  }
-
-  // 3. LIST
-  Logger.log('--- LIST ---');
-  try {
-    const list = metasListMine({}, ctx);
-    Logger.log('✓ LIST ok period=' + list.period + ' items=' + list.items.length);
-    Logger.log('  contenido: ' + JSON.stringify(list.items));
-  } catch (e) {
-    Logger.log('✗ LIST FALLÓ: ' + e.message);
-  }
-
-  // 4. UPDATE
-  Logger.log('--- UPDATE ---');
-  try {
-    const upd = metasUpdate({ id: createdId, valor: 99999 }, ctx);
-    Logger.log('✓ UPDATE ok valor=' + upd.meta.valor);
-  } catch (e) {
-    Logger.log('✗ UPDATE FALLÓ: ' + e.message);
-  }
-
-  // 5. DELETE
-  Logger.log('--- DELETE ---');
-  try {
-    metasDelete({ id: createdId }, ctx);
-    Logger.log('✓ DELETE ok (limpieza completa)');
-  } catch (e) {
-    Logger.log('✗ DELETE FALLÓ: ' + e.message);
-  }
-
-  Logger.log('=== FIN DEBUG TEST ===');
-  return { ok: true };
 }
 
 
