@@ -8,7 +8,8 @@ import { StatusBadge, type StatusKind } from '../components/StatusBadge';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { UserFormModal } from '../components/admin/UserFormModal';
 import { TrainerProfileModal } from '../components/admin/TrainerProfileModal';
-import { formatRelative } from '../lib/datetime';
+import { DetailModal, type DetailSection } from '../components/DetailModal';
+import { formatRelative, formatShortDate } from '../lib/datetime';
 
 interface SedeRef {
   id: string;
@@ -34,6 +35,7 @@ interface UserListItem {
   estado: string;
   entrenador_asignado_id?: string;
   last_login_at?: string;
+  created_at?: string;
   hasTrainerProfile?: boolean;
   sedes?: SedeRef[];
   gimnasios?: GymRef[];
@@ -71,6 +73,7 @@ export default function AdminUsers() {
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [trainerProfileFor, setTrainerProfileFor] = useState<UserListItem | null>(null);
+  const [viewing, setViewing] = useState<UserListItem | null>(null);
 
   const suspend = useApiMutation('adminSuspendUser');
   const reactivate = useApiMutation('adminReactivateUser');
@@ -228,6 +231,7 @@ export default function AdminUsers() {
               <UserRow
                 key={u.id}
                 user={u}
+                onView={() => setViewing(u)}
                 onEdit={() => setEditingUser(u)}
                 onSuspend={() => handleSuspend(u.id)}
                 onReactivate={() => handleReactivate(u.id)}
@@ -243,6 +247,7 @@ export default function AdminUsers() {
           <GroupedUsers
             users={filtered}
             groupBy={groupBy}
+            onView={(u) => setViewing(u)}
             onEdit={(u) => setEditingUser(u)}
             onSuspend={handleSuspend}
             onReactivate={handleReactivate}
@@ -277,10 +282,192 @@ export default function AdminUsers() {
         onSaved={() => { /* keep open after save */ }}
       />
 
+      <UserDetailModal
+        user={viewing}
+        onClose={() => setViewing(null)}
+        onEdit={() => { setEditingUser(viewing); setViewing(null); }}
+        onTrainerProfile={() => { setTrainerProfileFor(viewing); setViewing(null); }}
+        onSuspend={async () => {
+          if (!viewing) return;
+          await handleSuspend(viewing.id);
+          setViewing(null);
+        }}
+        onReactivate={async () => {
+          if (!viewing) return;
+          await handleReactivate(viewing.id);
+          setViewing(null);
+        }}
+        onResend={async () => {
+          if (!viewing) return;
+          await handleResend(viewing.id);
+          setViewing(null);
+        }}
+        busy={suspend.loading || reactivate.loading || resend.loading}
+      />
+
       {resentLink && (
         <ResendLinkModal link={resentLink} onClose={() => setResentLink(null)} />
       )}
     </AppShell>
+  );
+}
+
+function UserDetailModal({
+  user,
+  onClose,
+  onEdit,
+  onTrainerProfile,
+  onSuspend,
+  onReactivate,
+  onResend,
+  busy,
+}: {
+  user: UserListItem | null;
+  onClose: () => void;
+  onEdit: () => void;
+  onTrainerProfile: () => void;
+  onSuspend: () => void;
+  onReactivate: () => void;
+  onResend: () => void;
+  busy: boolean;
+}) {
+  if (!user) return null;
+  const isPending = user.estado === 'pending';
+  const isSuspended = user.estado === 'suspended';
+  const isActive = user.estado === 'active';
+
+  const sections: DetailSection[] = [
+    {
+      title: 'Identidad',
+      fields: [
+        { label: 'Nombre completo', value: `${user.nombres} ${user.apellidos}`.trim() },
+        { label: 'Nick', value: user.nick ? `@${user.nick}` : '' },
+        { label: 'Correo', value: user.email },
+        { label: 'Cédula', value: user.cedula ?? '' },
+        { label: 'Celular', value: user.celular ?? '' },
+        { label: 'Rol', value: ROLE_LABEL[user.rol] ?? user.rol },
+      ],
+    },
+    {
+      title: 'Estado de cuenta',
+      fields: [
+        {
+          label: 'Estado',
+          value: ESTADO_LABEL[user.estado] ?? user.estado,
+        },
+        {
+          label: 'Creada',
+          value: user.created_at ? formatShortDate(user.created_at) : '',
+        },
+        {
+          label: 'Último login',
+          value: user.last_login_at
+            ? formatRelative(user.last_login_at)
+            : 'Nunca',
+        },
+      ],
+    },
+  ];
+
+  // Asignaciones (gimnasios + sedes) si las hay
+  const hasAssignments = (user.gimnasios && user.gimnasios.length > 0)
+    || (user.sedes && user.sedes.length > 0);
+  if (hasAssignments) {
+    const fields: DetailSection['fields'] = [];
+    if (user.gimnasios && user.gimnasios.length > 0) {
+      fields.push({
+        label: 'Gimnasios',
+        value: (
+          <div className="flex flex-wrap gap-1">
+            {user.gimnasios.map((g) => (
+              <span
+                key={g.id}
+                className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20"
+              >
+                {g.nombre}
+              </span>
+            ))}
+          </div>
+        ),
+        fullWidth: true,
+      });
+    }
+    if (user.sedes && user.sedes.length > 0) {
+      fields.push({
+        label: 'Sedes',
+        value: (
+          <div className="flex flex-wrap gap-1">
+            {user.sedes.map((s) => (
+              <span
+                key={s.id}
+                className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-surface-2 border border-line text-fg-2"
+              >
+                {s.nombre}
+                {s.ciudad ? ` · ${s.ciudad}` : ''}
+              </span>
+            ))}
+          </div>
+        ),
+        fullWidth: true,
+      });
+    }
+    sections.push({ title: 'Asignaciones', fields });
+  }
+
+  if (user.rol === 'trainer') {
+    sections.push({
+      fields: [
+        {
+          label: 'Perfil profesional',
+          value: user.hasTrainerProfile
+            ? 'Configurado · usa el botón "Perfil profesional" para ver/editar'
+            : 'Sin configurar · usa el botón "Perfil profesional" para crearlo',
+          fullWidth: true,
+        },
+      ],
+    });
+  }
+
+  return (
+    <DetailModal
+      open
+      onClose={onClose}
+      title={`${user.nombres} ${user.apellidos}`.trim()}
+      subtitle={user.email}
+      badge={
+        <StatusBadge
+          kind={ESTADO_BADGE[user.estado] ?? 'cancelado'}
+          label={ESTADO_LABEL[user.estado] ?? user.estado}
+        />
+      }
+      sections={sections}
+      actions={
+        <>
+          <Btn variant="secondary" full onClick={onClose}>Cerrar</Btn>
+          {user.rol === 'trainer' && (
+            <Btn variant="outline" onClick={onTrainerProfile} disabled={busy}>
+              Perfil profesional
+            </Btn>
+          )}
+          {isPending && (
+            <Btn variant="outline" onClick={onResend} disabled={busy}>
+              Reenviar invitación
+            </Btn>
+          )}
+          {isSuspended && (
+            <Btn variant="outline" onClick={onReactivate} disabled={busy}>
+              Reactivar
+            </Btn>
+          )}
+          {isActive && (
+            <Btn variant="ghost" onClick={onSuspend} disabled={busy}>
+              Suspender
+            </Btn>
+          )}
+          <Btn onClick={onEdit} disabled={busy}>Editar</Btn>
+        </>
+      }
+    />
   );
 }
 
@@ -291,6 +478,7 @@ export default function AdminUsers() {
 function GroupedUsers({
   users,
   groupBy,
+  onView,
   onEdit,
   onSuspend,
   onReactivate,
@@ -300,6 +488,7 @@ function GroupedUsers({
 }: {
   users: UserListItem[];
   groupBy: GroupBy;
+  onView: (u: UserListItem) => void;
   onEdit: (u: UserListItem) => void;
   onSuspend: (id: string) => void;
   onReactivate: (id: string) => void;
@@ -371,6 +560,7 @@ function GroupedUsers({
               <UserRow
                 key={u.id + g.key}
                 user={u}
+                onView={() => onView(u)}
                 onEdit={() => onEdit(u)}
                 onSuspend={() => onSuspend(u.id)}
                 onReactivate={() => onReactivate(u.id)}
@@ -388,6 +578,7 @@ function GroupedUsers({
 
 function UserRow({
   user,
+  onView,
   onEdit,
   onSuspend,
   onReactivate,
@@ -396,6 +587,7 @@ function UserRow({
   busy,
 }: {
   user: UserListItem;
+  onView: () => void;
   onEdit: () => void;
   onSuspend: () => void;
   onReactivate: () => void;
@@ -412,61 +604,68 @@ function UserRow({
   return (
     <li>
       <Card padding={16}>
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center flex-none">
-            <span className="font-display text-xs font-bold" style={{ color: '#0B1208' }}>
-              {initials || '·'}
-            </span>
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-sm">
-                {user.nombres} {user.apellidos}
-              </span>
-              {user.nick && <span className="text-fg-3 text-[12px]">@{user.nick}</span>}
-              <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-fg-3">
-                {ROLE_LABEL[user.rol] ?? user.rol}
+        <button
+          type="button"
+          onClick={onView}
+          className="w-full text-left -m-1 p-1 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          aria-label={`Ver detalle de ${user.nombres} ${user.apellidos}`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center flex-none">
+              <span className="font-display text-xs font-bold" style={{ color: '#0B1208' }}>
+                {initials || '·'}
               </span>
             </div>
-            <div className="text-fg-2 text-[12px] mt-0.5 truncate">{user.email}</div>
-            {(user.gimnasios && user.gimnasios.length > 0) || (user.sedes && user.sedes.length > 0) ? (
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                {user.gimnasios?.slice(0, 2).map((g) => (
-                  <span
-                    key={'g' + g.id}
-                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20"
-                  >
-                    {g.nombre}
-                  </span>
-                ))}
-                {user.sedes?.slice(0, 2).map((s) => (
-                  <span
-                    key={'s' + s.id}
-                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-fg-2 border border-line"
-                  >
-                    {s.nombre}
-                  </span>
-                ))}
-                {((user.gimnasios?.length ?? 0) + (user.sedes?.length ?? 0)) > 4 && (
-                  <span className="text-[10px] text-fg-3">+más</span>
-                )}
-              </div>
-            ) : null}
-            {user.last_login_at && (
-              <div className="text-fg-3 text-[11px] mt-1">
-                Último login {formatRelative(user.last_login_at)}
-              </div>
-            )}
-          </div>
 
-          <div className="flex flex-col items-end gap-1.5">
-            <StatusBadge
-              kind={ESTADO_BADGE[user.estado] ?? 'cancelado'}
-              label={ESTADO_LABEL[user.estado] ?? user.estado}
-            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-sm">
+                  {user.nombres} {user.apellidos}
+                </span>
+                {user.nick && <span className="text-fg-3 text-[12px]">@{user.nick}</span>}
+                <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-fg-3">
+                  {ROLE_LABEL[user.rol] ?? user.rol}
+                </span>
+              </div>
+              <div className="text-fg-2 text-[12px] mt-0.5 truncate">{user.email}</div>
+              {(user.gimnasios && user.gimnasios.length > 0) || (user.sedes && user.sedes.length > 0) ? (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {user.gimnasios?.slice(0, 2).map((g) => (
+                    <span
+                      key={'g' + g.id}
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20"
+                    >
+                      {g.nombre}
+                    </span>
+                  ))}
+                  {user.sedes?.slice(0, 2).map((s) => (
+                    <span
+                      key={'s' + s.id}
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-fg-2 border border-line"
+                    >
+                      {s.nombre}
+                    </span>
+                  ))}
+                  {((user.gimnasios?.length ?? 0) + (user.sedes?.length ?? 0)) > 4 && (
+                    <span className="text-[10px] text-fg-3">+más</span>
+                  )}
+                </div>
+              ) : null}
+              {user.last_login_at && (
+                <div className="text-fg-3 text-[11px] mt-1">
+                  Último login {formatRelative(user.last_login_at)}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col items-end gap-1.5">
+              <StatusBadge
+                kind={ESTADO_BADGE[user.estado] ?? 'cancelado'}
+                label={ESTADO_LABEL[user.estado] ?? user.estado}
+              />
+            </div>
           </div>
-        </div>
+        </button>
 
         <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-line">
           <Btn variant="secondary" size="sm" onClick={onEdit} disabled={busy}>
