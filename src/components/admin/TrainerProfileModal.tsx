@@ -13,10 +13,6 @@ interface TrainerProfile {
   tipos_entrenamiento?: string;
   certificaciones?: string;
   visibilidad_default?: string;
-  cupos_estrictos?: boolean | string;
-  cupos_personalizado?: number | string;
-  cupos_semipersonalizado?: number | string;
-  cupos_grupal?: number | string;
   meta_economica_mensual?: number | string;
   meta_usuarios_activos?: number | string;
 }
@@ -27,10 +23,6 @@ interface ProfileForm {
   tiposEntrenamiento: string;
   certificaciones: string;
   visibilidadDefault: 'nombres_visibles' | 'solo_franjas';
-  cuposEstrictos: boolean;
-  cuposPersonalizado: string;
-  cuposSemipersonalizado: string;
-  cuposGrupal: string;
   metaEconomicaMensual: string;
   metaUsuariosActivos: string;
 }
@@ -63,10 +55,6 @@ export function TrainerProfileModal({ open, trainerId, trainerName, onClose, onS
       tiposEntrenamiento: '',
       certificaciones: '',
       visibilidadDefault: 'solo_franjas',
-      cuposEstrictos: true,
-      cuposPersonalizado: '1',
-      cuposSemipersonalizado: '5',
-      cuposGrupal: '15',
       metaEconomicaMensual: '0',
       metaUsuariosActivos: '0',
     },
@@ -81,10 +69,6 @@ export function TrainerProfileModal({ open, trainerId, trainerName, onClose, onS
         tiposEntrenamiento: p?.tipos_entrenamiento ?? '',
         certificaciones: p?.certificaciones ?? '',
         visibilidadDefault: (p?.visibilidad_default as 'nombres_visibles' | 'solo_franjas') ?? 'solo_franjas',
-        cuposEstrictos: p?.cupos_estrictos === true || p?.cupos_estrictos === 'TRUE' || p?.cupos_estrictos === undefined,
-        cuposPersonalizado: String(p?.cupos_personalizado ?? '1'),
-        cuposSemipersonalizado: String(p?.cupos_semipersonalizado ?? '5'),
-        cuposGrupal: String(p?.cupos_grupal ?? '15'),
         metaEconomicaMensual: String(p?.meta_economica_mensual ?? '0'),
         metaUsuariosActivos: String(p?.meta_usuarios_activos ?? '0'),
       });
@@ -102,10 +86,6 @@ export function TrainerProfileModal({ open, trainerId, trainerName, onClose, onS
         tiposEntrenamiento: values.tiposEntrenamiento.split(',').map((s) => s.trim()).filter(Boolean),
         certificaciones: values.certificaciones,
         visibilidadDefault: values.visibilidadDefault,
-        cuposEstrictos: values.cuposEstrictos,
-        cuposPersonalizado: Number(values.cuposPersonalizado) || 1,
-        cuposSemipersonalizado: Number(values.cuposSemipersonalizado) || 5,
-        cuposGrupal: Number(values.cuposGrupal) || 15,
         metaEconomicaMensual: Number(values.metaEconomicaMensual) || 0,
         metaUsuariosActivos: Number(values.metaUsuariosActivos) || 0,
       });
@@ -163,49 +143,6 @@ export function TrainerProfileModal({ open, trainerId, trainerName, onClose, onS
               placeholder="NSCA-CPT 2021, ..."
               {...register('certificaciones')}
             />
-          </Section>
-
-          {/* Sección: Caps por tipo de plan */}
-          <Section
-            title="Cupos máximos por franja"
-            description="Cuántos clientes pueden agendar al mismo tiempo según el tipo de plan."
-          >
-            <div className="grid grid-cols-3 gap-3">
-              <Field
-                label="Personalizado"
-                type="number"
-                min="1"
-                hint="Default 1"
-                {...register('cuposPersonalizado')}
-              />
-              <Field
-                label="Semipersonalizado"
-                type="number"
-                min="1"
-                hint="Default 5"
-                {...register('cuposSemipersonalizado')}
-              />
-              <Field
-                label="Grupal"
-                type="number"
-                min="1"
-                hint="Default 15"
-                {...register('cuposGrupal')}
-              />
-            </div>
-
-            <label className="flex items-start gap-3 mt-3 cursor-pointer">
-              <input
-                type="checkbox"
-                {...register('cuposEstrictos')}
-                className="mt-0.5 w-4 h-4 rounded accent-accent flex-none cursor-pointer"
-              />
-              <span className="text-[13px] text-fg-2 leading-relaxed">
-                <strong>Cupos estrictos.</strong> Si está activo, cuando el cupo esté lleno
-                el sistema rechaza la solicitud. Si está apagado, el cliente puede agendar
-                pero queda en estado "requiere autorización" y tú decides si confirmas.
-              </span>
-            </label>
           </Section>
 
           {/* Sección: Visibilidad */}
