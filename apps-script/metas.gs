@@ -32,6 +32,36 @@ function metas_normalizePeriod_(periodInput) {
   return now.getUTCFullYear() + '-' + String(now.getUTCMonth() + 1).padStart(2, '0');
 }
 
+/**
+ * Normaliza el valor de la columna `periodo` leído de Sheets. Sheets
+ * autoconvierte "2026-05" a Date object (mes/año), así que al leer puede
+ * llegar como Date o ISO string. Devuelve siempre "YYYY-MM".
+ */
+function metas_periodoToString_(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date) {
+    return v.getUTCFullYear() + '-' + String(v.getUTCMonth() + 1).padStart(2, '0');
+  }
+  const s = String(v);
+  // ISO date → tomar YYYY-MM
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 7);
+  return s;
+}
+
+/**
+ * Fuerza formato texto en la columna `periodo` para evitar que Sheets
+ * autointerprete el valor como Date. Idempotente, barato.
+ */
+function metas_ensurePeriodoTextFormat_() {
+  const sheet = db_getSheet_('metas_profesional');
+  const headers = db_getHeaders_(sheet);
+  const periodoCol = headers.indexOf('periodo') + 1;
+  if (periodoCol === 0) return;
+  const maxRows = sheet.getMaxRows();
+  if (maxRows < 2) return;
+  sheet.getRange(2, periodoCol, maxRows - 1, 1).setNumberFormat('@');
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // listMyMetas — metas del trainer logueado en un periodo
 // ──────────────────────────────────────────────────────────────────────────
@@ -46,7 +76,8 @@ function metasListMine(payload, ctx) {
   Logger.log('[DEBUG metasListMine] periodo resuelto=' + periodo + ' trainerId=' + trainerId); // DEBUG
 
   const items = dbListAll('metas_profesional', function (m) {
-    return m.profesional_id === trainerId && m.periodo === periodo;
+    return m.profesional_id === trainerId
+      && metas_periodoToString_(m.periodo) === periodo;
   });
   Logger.log('[DEBUG metasListMine] items.length=' + items.length); // DEBUG
   items.sort(function (a, b) {
@@ -59,7 +90,7 @@ function metasListMine(payload, ctx) {
       return {
         id: m.id,
         profesionalId: m.profesional_id,
-        periodo: m.periodo,
+        periodo: metas_periodoToString_(m.periodo),
         nombre: m.nombre,
         tipo: m.tipo,
         valor: Number(m.valor) || 0,
@@ -88,7 +119,7 @@ function metasCreate(payload, ctx) {
 
   const dup = dbListAll('metas_profesional', function (m) {
     return m.profesional_id === trainerId
-      && m.periodo === periodo
+      && metas_periodoToString_(m.periodo) === periodo
       && String(m.nombre).toLowerCase() === nombre.toLowerCase();
   });
   if (dup.length > 0) {
@@ -108,6 +139,9 @@ function metasCreate(payload, ctx) {
     updated_at: now,
   };
   dbInsert('metas_profesional', meta);
+  // Forzar formato texto en la columna periodo para evitar que Sheets
+  // autoconvierta "2026-05" a Date object.
+  metas_ensurePeriodoTextFormat_();
   Logger.log('[DEBUG metasCreate] insertado id=' + id); // DEBUG
 
   auditOk(ctx.userId, 'create_meta', 'metas_profesional', id,
@@ -143,14 +177,16 @@ function metasUpdate(payload, ctx) {
   if (payload.nombre != null) {
     const nuevoNombre = vString(payload.nombre, 'nombre', { min: 2, max: 80 });
     if (nuevoNombre.toLowerCase() !== String(before.nombre).toLowerCase()) {
+      const beforePeriodo = metas_periodoToString_(before.periodo);
       const dup = dbListAll('metas_profesional', function (m) {
         return m.profesional_id === before.profesional_id
-          && m.periodo === before.periodo
+          && metas_periodoToString_(m.periodo) === beforePeriodo
           && m.id !== id
           && String(m.nombre).toLowerCase() === nuevoNombre.toLowerCase();
       });
       if (dup.length > 0) {
-        throw _err('META_DUPLICATE', 'Ya tienes una meta con ese nombre en ' + before.periodo);
+        throw _err('META_DUPLICATE',
+          'Ya tienes una meta con ese nombre en ' + beforePeriodo);
       }
     }
     patch.nombre = nuevoNombre;
@@ -217,7 +253,7 @@ function metasDelete(payload, ctx) {
 function metas_getTotalEconomica_(trainerId, periodo) {
   const items = dbListAll('metas_profesional', function (m) {
     return m.profesional_id === trainerId
-      && m.periodo === periodo
+      && metas_periodoToString_(m.periodo) === periodo
       && m.tipo === 'economica';
   });
   return items.reduce(function (sum, m) {
@@ -228,7 +264,7 @@ function metas_getTotalEconomica_(trainerId, periodo) {
 function metas_getTotalUsuarios_(trainerId, periodo) {
   const items = dbListAll('metas_profesional', function (m) {
     return m.profesional_id === trainerId
-      && m.periodo === periodo
+      && metas_periodoToString_(m.periodo) === periodo
       && m.tipo === 'usuarios';
   });
   return items.reduce(function (sum, m) {
