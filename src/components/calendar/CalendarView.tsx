@@ -26,6 +26,8 @@ export interface CalendarBooking {
     ciudad?: string;
     gimnasio_id?: string;
     gimnasio?: { id: string; nombre: string } | null;
+    category?: string;
+    categoryRank?: number;
   } | null;
   userGroups?: UserGroup[];
 }

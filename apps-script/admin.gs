@@ -520,6 +520,12 @@ function adminCreateSede(payload, ctx) {
   const codigo = payload.codigoInterno
     ? vString(payload.codigoInterno, 'codigo_interno', { max: 30 })
     : '';
+  const categoriaSede = payload.categoriaSede
+    ? vEnum(payload.categoriaSede, 'categoriaSede', ['basica', 'plus', 'premium', 'elite'])
+    : 'basica';
+  const categoriaRank = payload.categoriaRank
+    ? vNumber(payload.categoriaRank, 'categoriaRank', { min: 1, max: 4, int: true })
+    : 1;
 
   const id = cryptoUuid();
   const now = dbNowUtc();
@@ -541,6 +547,8 @@ function adminCreateSede(payload, ctx) {
     reglas: payload.reglas || '',
     estado: 'active',
     gimnasio_id: payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '',
+    categoria_sede: categoriaSede,
+    categoria_rank: categoriaRank,
     created_at: now,
     updated_at: now,
   };
@@ -558,13 +566,24 @@ function adminUpdateSede(payload, ctx) {
 
   const allowed = ['nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
                    'telefono', 'responsable', 'horarios', 'capacidad',
-                   'observaciones', 'servicios', 'reglas', 'estado', 'gimnasio_id'];
+                   'observaciones', 'servicios', 'reglas', 'estado', 'gimnasio_id',
+                   'categoria_sede', 'categoria_rank'];
   const patch = {};
   for (let i = 0; i < allowed.length; i++) {
     const k = allowed[i];
     const camelKey = k.replace(/_(.)/g, function (_, c) { return c.toUpperCase(); });
     if (k in payload) patch[k] = payload[k];
     else if (camelKey in payload) patch[k] = payload[camelKey];
+  }
+  if ('categoria_sede' in patch) {
+    patch.categoria_sede = patch.categoria_sede
+      ? vEnum(patch.categoria_sede, 'categoriaSede', ['basica', 'plus', 'premium', 'elite'])
+      : '';
+  }
+  if ('categoria_rank' in patch) {
+    patch.categoria_rank = patch.categoria_rank
+      ? vNumber(patch.categoria_rank, 'categoriaRank', { min: 1, max: 4, int: true })
+      : '';
   }
   if ('servicios' in patch && Array.isArray(patch.servicios)) {
     patch.servicios = patch.servicios.join(',');

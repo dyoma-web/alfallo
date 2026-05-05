@@ -27,6 +27,9 @@ interface Sede {
   nombre: string;
   ciudad: string;
   direccion?: string;
+  category?: string;
+  categoryRank?: number;
+  isBase?: boolean;
 }
 interface PlanInfo {
   id: string;
@@ -64,6 +67,21 @@ const SLOT_HOURS = Array.from({ length: 31 }, (_, i) => {
   const m = totalMin % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }); // 06:00, 06:30, ..., 21:00
+
+const SEDE_CATEGORY_LABELS: Record<string, string> = {
+  basica: 'Basica',
+  plus: 'Plus',
+  premium: 'Premium',
+  elite: 'Elite',
+};
+
+function sedeCategoryLabel(sede?: Pick<Sede, 'category' | 'categoryRank'> | null): string {
+  if (!sede) return '';
+  const key = String(sede.category || '');
+  if (key && SEDE_CATEGORY_LABELS[key]) return SEDE_CATEGORY_LABELS[key];
+  if (sede.categoryRank) return `Nivel ${sede.categoryRank}`;
+  return '';
+}
 
 export default function Booking() {
   const navigate = useNavigate();
@@ -143,6 +161,19 @@ export default function Booking() {
   const selectedDate = watch('fecha');
   const selectedHora = watch('hora');
   const selectedDuracion = watch('duracionMin');
+  const selectedSedeId = watch('sedeId');
+
+  const selectedSede = useMemo(
+    () => options?.sedes.find((s) => s.id === selectedSedeId) ?? null,
+    [options, selectedSedeId]
+  );
+  const baseSede = useMemo(
+    () => options?.sedes.find((s) => s.isBase) ?? null,
+    [options]
+  );
+  const isOutsideBaseSede = !!selectedSede && !!baseSede && selectedSede.id !== baseSede.id;
+  const isHigherCategory = !!selectedSede && !!baseSede
+    && Number(selectedSede.categoryRank || 0) > Number(baseSede.categoryRank || 0);
 
   // Cargar slots ocupados cuando cambian trainer o fecha
   const [busySlots, setBusySlots] = useState<BusySlot[]>([]);
@@ -318,10 +349,16 @@ export default function Booking() {
                   <option value="">Sin sede específica</option>
                   {options.sedes.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.nombre} · {s.ciudad}
+                      {s.nombre} · {s.ciudad}{sedeCategoryLabel(s) ? ` · ${sedeCategoryLabel(s)}` : ''}{s.isBase ? ' · Base' : ''}
                     </option>
                   ))}
                 </select>
+                {baseSede && (
+                  <p className="text-[12px] text-fg-3 mt-2">
+                    Tu sede base es {baseSede.nombre}
+                    {sedeCategoryLabel(baseSede) ? ` (${sedeCategoryLabel(baseSede)})` : ''}.
+                  </p>
+                )}
               </Card>
             )}
 
@@ -408,39 +445,43 @@ export default function Booking() {
 
             {/* Aviso plan vencido */}
             {noPlan && (
-              <Card padding={16} className="border-warn/25 bg-warn/5">
-                <div className="flex items-start gap-3 text-[13px]">
-                  <Icon name="bell" size={16} color="#FFC97A" strokeWidth={2} className="mt-0.5 flex-none" />
-                  <div className="text-fg-2">
-                    No tienes plan activo. Tu solicitud quedará en{' '}
-                    <strong>requiere autorización</strong> y tu entrenador decide si la acepta.
-                  </div>
-                </div>
-              </Card>
+              <WarningCard>
+                No tienes plan activo. Tu solicitud quedará en{' '}
+                <strong>requiere autorización</strong> y tu entrenador decide si la acepta.
+              </WarningCard>
+            )}
+
+            {isOutsideBaseSede && selectedSede && baseSede && (
+              <WarningCard>
+                Estás eligiendo {selectedSede.nombre}, distinta a tu sede base {baseSede.nombre}.
+                Tu entrenador puede revisar esta solicitud antes de confirmarla.
+              </WarningCard>
+            )}
+
+            {isHigherCategory && selectedSede && baseSede && (
+              <WarningCard>
+                {selectedSede.nombre} es categoria {sedeCategoryLabel(selectedSede)}, superior a tu base{' '}
+                {sedeCategoryLabel(baseSede)}. Si tu plan no cubre ese nivel, puede requerir autorización.
+              </WarningCard>
             )}
 
             {/* Aviso de cupo */}
             {slotCap && slotCap.lleno && (
-              <Card padding={16} className="border-warn/25 bg-warn/5">
-                <div className="flex items-start gap-3 text-[13px]">
-                  <Icon name="bell" size={16} color="#FFC97A" strokeWidth={2} className="mt-0.5 flex-none" />
-                  <div className="text-fg-2">
-                    {slotCap.estricto ? (
-                      <>
-                        <strong>Cupo lleno y estricto.</strong> No se pueden agendar más
-                        sesiones de tipo "{slotCap.tipo}" en esa franja ({slotCap.tomados}/{slotCap.cap}).
-                        Elige otro horario.
-                      </>
-                    ) : (
-                      <>
-                        <strong>Cupo lleno ({slotCap.tomados}/{slotCap.cap}).</strong>{' '}
-                        Puedes solicitar agendar, pero tu entrenador decidirá si confirma o no.
-                        Solo confirmadas son en firme.
-                      </>
-                    )}
-                  </div>
-                </div>
-              </Card>
+              <WarningCard>
+                {slotCap.estricto ? (
+                  <>
+                    <strong>Cupo lleno y estricto.</strong> No se pueden agendar más
+                    sesiones de tipo "{slotCap.tipo}" en esa franja ({slotCap.tomados}/{slotCap.cap}).
+                    Elige otro horario.
+                  </>
+                ) : (
+                  <>
+                    <strong>Cupo lleno ({slotCap.tomados}/{slotCap.cap}).</strong>{' '}
+                    Puedes solicitar agendar, pero tu entrenador decidirá si confirma o no.
+                    Solo confirmadas son en firme.
+                  </>
+                )}
+              </WarningCard>
             )}
             {slotCap && !slotCap.lleno && slotCap.cap > 1 && (
               <p className="text-[12px] text-fg-3">
@@ -450,15 +491,10 @@ export default function Booking() {
             )}
 
             {options.planActivo && options.planActivo.sesionesRestantes <= 2 && (
-              <Card padding={16} className="border-warn/25 bg-warn/5">
-                <div className="flex items-start gap-3 text-[13px]">
-                  <Icon name="bell" size={16} color="#FFC97A" strokeWidth={2} className="mt-0.5 flex-none" />
-                  <div className="text-fg-2">
-                    Solo te quedan <strong>{options.planActivo.sesionesRestantes}</strong> sesion
-                    {options.planActivo.sesionesRestantes === 1 ? '' : 'es'} en tu plan activo.
-                  </div>
-                </div>
-              </Card>
+              <WarningCard>
+                Solo te quedan <strong>{options.planActivo.sesionesRestantes}</strong> sesion
+                {options.planActivo.sesionesRestantes === 1 ? '' : 'es'} en tu plan activo.
+              </WarningCard>
             )}
 
             {submitError && (
@@ -492,6 +528,17 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
     <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
       {children}
     </div>
+  );
+}
+
+function WarningCard({ children }: { children: React.ReactNode }) {
+  return (
+    <Card padding={16} className="border-warn/25 bg-warn/5">
+      <div className="flex items-start gap-3 text-[13px]">
+        <Icon name="bell" size={16} color="#FFC97A" strokeWidth={2} className="mt-0.5 flex-none" />
+        <div className="text-fg-2">{children}</div>
+      </div>
+    </Card>
   );
 }
 

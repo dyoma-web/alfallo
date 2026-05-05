@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-05T01:01:53.602Z                              ║
+ * ║  Built:   2026-05-05T01:37:31.297Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -69,6 +69,7 @@ const SCHEMA = {
     'id', 'nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
     'telefono', 'responsable', 'horarios', 'capacidad', 'observaciones',
     'servicios', 'reglas', 'estado', 'gimnasio_id',
+    'categoria_sede', 'categoria_rank',
     'created_at', 'updated_at'
   ],
 
@@ -1823,6 +1824,19 @@ function optionsGetBookingOptions(_payload, ctx) {
   const user = dbFindById('usuarios', userId);
   if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
 
+  function sedeOption_(s, relation) {
+    return {
+      id: s.id,
+      nombre: s.nombre,
+      codigo: s.codigo_interno,
+      ciudad: s.ciudad,
+      direccion: s.direccion,
+      category: s.categoria_sede || '',
+      categoryRank: Number(s.categoria_rank) || 0,
+      isBase: relation ? (relation.principal === true || relation.principal === 'TRUE') : false,
+    };
+  }
+
   // 1. Entrenadores disponibles para el usuario
   // MVP: el entrenador asignado (si existe) + (futuro) cualquier otro activo
   const trainers = [];
@@ -1855,19 +1869,13 @@ function optionsGetBookingOptions(_payload, ctx) {
     for (let i = 0; i < userSedes.length; i++) {
       const s = dbFindById('sedes', userSedes[i].sede_id);
       if (s && s.estado === 'active') {
-        sedes.push({
-          id: s.id, nombre: s.nombre, codigo: s.codigo_interno,
-          ciudad: s.ciudad, direccion: s.direccion,
-        });
+        sedes.push(sedeOption_(s, userSedes[i]));
       }
     }
   } else {
     sedes = dbListAll('sedes', function (s) { return s.estado === 'active'; })
       .map(function (s) {
-        return {
-          id: s.id, nombre: s.nombre, codigo: s.codigo_interno,
-          ciudad: s.ciudad, direccion: s.direccion,
-        };
+        return sedeOption_(s, null);
       });
   }
 
@@ -2668,6 +2676,8 @@ function bookingsListMine(payload, ctx) {
         ciudad: s.ciudad,
         gimnasio_id: s.gimnasio_id || '',
         gimnasio: gym,
+        category: s.categoria_sede || '',
+        categoryRank: Number(s.categoria_rank) || 0,
       } : null;
     }
     return sedeCache[id];
@@ -4097,6 +4107,12 @@ function adminCreateSede(payload, ctx) {
   const codigo = payload.codigoInterno
     ? vString(payload.codigoInterno, 'codigo_interno', { max: 30 })
     : '';
+  const categoriaSede = payload.categoriaSede
+    ? vEnum(payload.categoriaSede, 'categoriaSede', ['basica', 'plus', 'premium', 'elite'])
+    : 'basica';
+  const categoriaRank = payload.categoriaRank
+    ? vNumber(payload.categoriaRank, 'categoriaRank', { min: 1, max: 4, int: true })
+    : 1;
 
   const id = cryptoUuid();
   const now = dbNowUtc();
@@ -4118,6 +4134,8 @@ function adminCreateSede(payload, ctx) {
     reglas: payload.reglas || '',
     estado: 'active',
     gimnasio_id: payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '',
+    categoria_sede: categoriaSede,
+    categoria_rank: categoriaRank,
     created_at: now,
     updated_at: now,
   };
@@ -4135,13 +4153,24 @@ function adminUpdateSede(payload, ctx) {
 
   const allowed = ['nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
                    'telefono', 'responsable', 'horarios', 'capacidad',
-                   'observaciones', 'servicios', 'reglas', 'estado', 'gimnasio_id'];
+                   'observaciones', 'servicios', 'reglas', 'estado', 'gimnasio_id',
+                   'categoria_sede', 'categoria_rank'];
   const patch = {};
   for (let i = 0; i < allowed.length; i++) {
     const k = allowed[i];
     const camelKey = k.replace(/_(.)/g, function (_, c) { return c.toUpperCase(); });
     if (k in payload) patch[k] = payload[k];
     else if (camelKey in payload) patch[k] = payload[camelKey];
+  }
+  if ('categoria_sede' in patch) {
+    patch.categoria_sede = patch.categoria_sede
+      ? vEnum(patch.categoria_sede, 'categoriaSede', ['basica', 'plus', 'premium', 'elite'])
+      : '';
+  }
+  if ('categoria_rank' in patch) {
+    patch.categoria_rank = patch.categoria_rank
+      ? vNumber(patch.categoria_rank, 'categoriaRank', { min: 1, max: 4, int: true })
+      : '';
   }
   if ('servicios' in patch && Array.isArray(patch.servicios)) {
     patch.servicios = patch.servicios.join(',');

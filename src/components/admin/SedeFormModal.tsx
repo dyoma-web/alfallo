@@ -20,6 +20,8 @@ interface Sede {
   reglas?: string;
   estado?: string;
   gimnasio_id?: string;
+  categoria_sede?: string;
+  categoria_rank?: number | string;
 }
 
 interface SedeForm {
@@ -35,12 +37,20 @@ interface SedeForm {
   servicios: string;
   reglas: string;
   gimnasioId: string;
+  categoriaSede: string;
 }
 
 interface GymOption {
   id: string;
   nombre: string;
 }
+
+const SEDE_CATEGORIES = [
+  { value: 'basica', label: 'Basica', rank: 1 },
+  { value: 'plus', label: 'Plus', rank: 2 },
+  { value: 'premium', label: 'Premium', rank: 3 },
+  { value: 'elite', label: 'Elite', rank: 4 },
+];
 
 interface Props {
   open: boolean;
@@ -78,6 +88,7 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
       servicios: '',
       reglas: '',
       gimnasioId: '',
+      categoriaSede: 'basica',
     },
   });
 
@@ -96,6 +107,7 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
         servicios: initialSede?.servicios ?? '',
         reglas: initialSede?.reglas ?? '',
         gimnasioId: initialSede?.gimnasio_id ?? '',
+        categoriaSede: initialSede?.categoria_sede ?? 'basica',
       });
       create.reset();
       update.reset();
@@ -104,9 +116,11 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
   }, [open, initialSede]);
 
   async function onSubmit(values: SedeForm) {
+    const category = SEDE_CATEGORIES.find((c) => c.value === values.categoriaSede) ?? SEDE_CATEGORIES[0];
     const payload = {
       ...values,
       capacidad: values.capacidad ? Number(values.capacidad) : undefined,
+      categoriaRank: category.rank,
     };
     try {
       if (isEdit && initialSede) {
@@ -144,6 +158,24 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
           <p className="text-[12px] text-fg-3 mt-1.5">
             Si la sede pertenece a una cadena (Bodytech, SmartFit, etc.), selecciónala. Si no aparece, créala primero en{' '}
             <span className="text-fg-2">/gimnasios</span>.
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="categoriaSede" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+            Categoria de sede
+          </label>
+          <select
+            id="categoriaSede"
+            {...register('categoriaSede')}
+            className="w-full h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60"
+          >
+            {SEDE_CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+          <p className="text-[12px] text-fg-3 mt-1.5">
+            Define la jerarquia comercial de la sede para advertir cambios de categoria durante el agendamiento.
           </p>
         </div>
 

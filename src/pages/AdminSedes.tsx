@@ -26,12 +26,28 @@ interface Sede {
   reglas?: string;
   gimnasio_id?: string;
   gimnasio?: { id: string; nombre: string } | null;
+  categoria_sede?: string;
+  categoria_rank?: number | string;
   estado?: string;
   trainersCount?: number;
   usuariosCount?: number;
 }
 
 type GroupBy = 'none' | 'gimnasio';
+
+const SEDE_CATEGORY_LABELS: Record<string, string> = {
+  basica: 'Basica',
+  plus: 'Plus',
+  premium: 'Premium',
+  elite: 'Elite',
+};
+
+function sedeCategoryLabel(sede: Pick<Sede, 'categoria_sede' | 'categoria_rank'>): string {
+  const key = String(sede.categoria_sede || '');
+  if (key && SEDE_CATEGORY_LABELS[key]) return SEDE_CATEGORY_LABELS[key];
+  if (sede.categoria_rank) return `Nivel ${sede.categoria_rank}`;
+  return 'Sin categoria';
+}
 
 export default function AdminSedes() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -286,6 +302,7 @@ function SedeDetailModal({
         { label: 'Nombre', value: sede.nombre },
         { label: 'Código interno', value: sede.codigo_interno ?? '' },
         { label: 'Gimnasio', value: sede.gimnasio?.nombre ?? 'Sede independiente' },
+        { label: 'Categoria', value: sedeCategoryLabel(sede) },
         { label: 'Ubicación', value: ubicacionField, fullWidth: true },
         { label: 'Teléfono', value: sede.telefono ?? '' },
         { label: 'Responsable', value: sede.responsable ?? '' },
@@ -412,6 +429,9 @@ function SedeRow({
                     {sede.gimnasio.nombre}
                   </span>
                 )}
+                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-surface-2 text-fg-2 border border-line">
+                  {sedeCategoryLabel(sede)}
+                </span>
               </div>
               {sede.direccion && (
                 <div className="text-fg-2 text-[12px] mt-0.5 flex items-center gap-1">

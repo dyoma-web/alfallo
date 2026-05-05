@@ -534,6 +534,8 @@ function bookingsListMine(payload, ctx) {
         ciudad: s.ciudad,
         gimnasio_id: s.gimnasio_id || '',
         gimnasio: gym,
+        category: s.categoria_sede || '',
+        categoryRank: Number(s.categoria_rank) || 0,
       } : null;
     }
     return sedeCache[id];

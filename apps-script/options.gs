@@ -12,6 +12,19 @@ function optionsGetBookingOptions(_payload, ctx) {
   const user = dbFindById('usuarios', userId);
   if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
 
+  function sedeOption_(s, relation) {
+    return {
+      id: s.id,
+      nombre: s.nombre,
+      codigo: s.codigo_interno,
+      ciudad: s.ciudad,
+      direccion: s.direccion,
+      category: s.categoria_sede || '',
+      categoryRank: Number(s.categoria_rank) || 0,
+      isBase: relation ? (relation.principal === true || relation.principal === 'TRUE') : false,
+    };
+  }
+
   // 1. Entrenadores disponibles para el usuario
   // MVP: el entrenador asignado (si existe) + (futuro) cualquier otro activo
   const trainers = [];
@@ -44,19 +57,13 @@ function optionsGetBookingOptions(_payload, ctx) {
     for (let i = 0; i < userSedes.length; i++) {
       const s = dbFindById('sedes', userSedes[i].sede_id);
       if (s && s.estado === 'active') {
-        sedes.push({
-          id: s.id, nombre: s.nombre, codigo: s.codigo_interno,
-          ciudad: s.ciudad, direccion: s.direccion,
-        });
+        sedes.push(sedeOption_(s, userSedes[i]));
       }
     }
   } else {
     sedes = dbListAll('sedes', function (s) { return s.estado === 'active'; })
       .map(function (s) {
-        return {
-          id: s.id, nombre: s.nombre, codigo: s.codigo_interno,
-          ciudad: s.ciudad, direccion: s.direccion,
-        };
+        return sedeOption_(s, null);
       });
   }
 
