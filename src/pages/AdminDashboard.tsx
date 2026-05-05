@@ -108,6 +108,53 @@ export default function AdminDashboard() {
               </div>
             </Section>
 
+            <Section title="Lectura ejecutiva">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <HealthCard
+                  title="Usuarios"
+                  description="Distribucion de cuentas activas y pendientes."
+                  total={data.usuarios.total}
+                  segments={[
+                    { label: 'Clientes', value: data.usuarios.clients, color: '#C8FF3D' },
+                    { label: 'Entrenadores', value: data.usuarios.trainers, color: '#7AC7FF' },
+                    { label: 'Pendientes', value: data.usuarios.pendientes, color: '#FFB02E' },
+                  ]}
+                  rows={[
+                    { label: 'Activos', value: data.usuarios.activos, total: data.usuarios.total, tone: 'ok' },
+                    { label: 'Pendientes', value: data.usuarios.pendientes, total: data.usuarios.total, tone: data.usuarios.pendientes > 0 ? 'warn' : 'muted' },
+                  ]}
+                />
+                <HealthCard
+                  title="Planes"
+                  description="Riesgo comercial inmediato sobre planes activos."
+                  total={data.planes.activos + data.planes.vencidos}
+                  segments={[
+                    { label: 'Activos', value: data.planes.activos, color: '#C8FF3D' },
+                    { label: 'Por vencer', value: data.planes.porVencer, color: '#FFB02E' },
+                    { label: 'Vencidos', value: data.planes.vencidos, color: '#FF5C5C' },
+                  ]}
+                  rows={[
+                    { label: 'Por vencer', value: data.planes.porVencer, total: Math.max(1, data.planes.activos), tone: data.planes.porVencer > 0 ? 'warn' : 'muted' },
+                    { label: 'Vencidos', value: data.planes.vencidos, total: Math.max(1, data.planes.activos + data.planes.vencidos), tone: data.planes.vencidos > 0 ? 'err' : 'muted' },
+                  ]}
+                />
+                <HealthCard
+                  title="Sesiones"
+                  description="Resultado operativo de los ultimos 7 dias."
+                  total={data.sesionesSemana.total}
+                  segments={[
+                    { label: 'Completadas', value: data.sesionesSemana.completadas, color: '#7DE08D' },
+                    { label: 'Canceladas', value: data.sesionesSemana.canceladas, color: '#FFB02E' },
+                    { label: 'No asistidas', value: data.sesionesSemana.noAsistidas, color: '#FF5C5C' },
+                  ]}
+                  rows={[
+                    { label: 'Completadas', value: data.sesionesSemana.completadas, total: data.sesionesSemana.total, tone: 'ok' },
+                    { label: 'Incidencias', value: data.sesionesSemana.canceladas + data.sesionesSemana.noAsistidas, total: data.sesionesSemana.total, tone: data.sesionesSemana.canceladas + data.sesionesSemana.noAsistidas > 0 ? 'warn' : 'muted' },
+                  ]}
+                />
+              </div>
+            </Section>
+
             {/* Sección: Operación */}
             <Section title="Operación">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -268,6 +315,119 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+interface ChartSegment {
+  label: string;
+  value: number;
+  color: string;
+}
+
+interface ProgressRow {
+  label: string;
+  value: number;
+  total: number;
+  tone: 'ok' | 'warn' | 'err' | 'muted';
+}
+
+function HealthCard({
+  title,
+  description,
+  total,
+  segments,
+  rows,
+}: {
+  title: string;
+  description: string;
+  total: number;
+  segments: ChartSegment[];
+  rows: ProgressRow[];
+}) {
+  const visibleTotal = Math.max(0, total);
+  return (
+    <Card padding={16}>
+      <div className="flex items-start gap-4">
+        <DonutChart segments={segments} total={visibleTotal} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="font-medium text-sm">{title}</h3>
+            <span className="font-display text-xl font-bold leading-none">{visibleTotal}</span>
+          </div>
+          <p className="text-fg-3 text-[12px] mt-1">{description}</p>
+          <div className="mt-3 space-y-2">
+            {rows.map((row) => (
+              <ProgressMetric key={row.label} row={row} />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 pt-3 border-t border-line">
+        {segments.map((s) => (
+          <span key={s.label} className="inline-flex items-center gap-1 text-[11px] text-fg-3">
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: s.color }}
+            />
+            {s.label}: <span className="text-fg-2">{s.value}</span>
+          </span>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function DonutChart({ segments, total }: { segments: ChartSegment[]; total: number }) {
+  let cursor = 0;
+  const stops = segments
+    .filter((s) => s.value > 0)
+    .map((s) => {
+      const start = total > 0 ? (cursor / total) * 100 : 0;
+      cursor += s.value;
+      const end = total > 0 ? (cursor / total) * 100 : 0;
+      return `${s.color} ${start}% ${end}%`;
+    });
+  if (total > 0 && cursor < total) {
+    const start = (cursor / total) * 100;
+    stops.push(`rgba(168,176,164,0.16) ${start}% 100%`);
+  }
+  const background = stops.length > 0
+    ? `conic-gradient(${stops.join(', ')})`
+    : 'conic-gradient(rgba(168,176,164,0.16) 0 100%)';
+
+  return (
+    <div
+      className="w-20 h-20 rounded-full flex-none grid place-items-center"
+      style={{ background }}
+      aria-label={`Total ${total}`}
+    >
+      <div className="w-12 h-12 rounded-full bg-surface border border-line grid place-items-center">
+        <span className="font-display text-lg font-bold leading-none">{total}</span>
+      </div>
+    </div>
+  );
+}
+
+function ProgressMetric({ row }: { row: ProgressRow }) {
+  const pct = row.total > 0 ? Math.min(100, Math.max(0, (row.value / row.total) * 100)) : 0;
+  const barClass =
+    row.tone === 'ok'
+      ? 'bg-accent'
+      : row.tone === 'warn'
+      ? 'bg-warn'
+      : row.tone === 'err'
+      ? 'bg-err'
+      : 'bg-fg-3';
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2 text-[11px] mb-1">
+        <span className="text-fg-3">{row.label}</span>
+        <span className="text-fg-2">{Math.round(pct)}%</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
+        <div className={['h-full rounded-full', barClass].join(' ')} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   );
 }
 
