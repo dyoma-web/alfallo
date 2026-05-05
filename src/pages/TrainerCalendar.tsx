@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AppShell } from '../components/layouts/AppShell';
 import { Card } from '../components/Card';
 import { Btn } from '../components/Btn';
@@ -48,13 +48,28 @@ type ViewMode = 'list' | 'calendar';
 type DayFilter = 'all' | 'weekdays' | 'weekend';
 
 export default function TrainerCalendar() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const userParam = searchParams.get('userId') ?? '';
   const [viewMode, setViewMode] = useState<ViewMode>(() =>
     typeof window !== 'undefined' && window.innerWidth >= 768 ? 'calendar' : 'list'
   );
   const [filter, setFilter] = useState<'upcoming' | 'past' | 'all'>('upcoming');
   const [dayFilter, setDayFilter] = useState<DayFilter>('all');
+  const [userFilter, setUserFilter] = useState(userParam);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [registeringAttendance, setRegisteringAttendance] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUserFilter(userParam);
+  }, [userParam]);
+
+  function updateUserFilter(id: string) {
+    setUserFilter(id);
+    const next = new URLSearchParams(searchParams);
+    if (id) next.set('userId', id);
+    else next.delete('userId');
+    setSearchParams(next, { replace: true });
+  }
 
   const { data, error, loading, refetch } = useApiQuery<Booking[]>('listMyBookings', {});
 
@@ -83,15 +98,34 @@ export default function TrainerCalendar() {
     return data.filter((b) => !!b.fecha_inicio_utc);
   }, [data]);
 
+  const clients = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of allActive) {
+      if (b.cliente?.id) {
+        const name = `${b.cliente.nombres ?? ''} ${b.cliente.apellidos ?? ''}`.trim();
+        if (!map.has(b.cliente.id)) map.set(b.cliente.id, name || b.cliente.id);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [allActive]);
+
+  const calendarBookings = useMemo(() => {
+    if (!userFilter) return allActive;
+    return allActive.filter((b) => b.cliente?.id === userFilter);
+  }, [allActive, userFilter]);
+
   const filtered = useMemo(() => {
     const now = Date.now();
     return allActive.filter((b) => {
       const t = new Date(b.fecha_inicio_utc).getTime();
       if (filter === 'upcoming' && (t < now || FINAL_STATES.includes(String(b.estado)))) return false;
       if (filter === 'past' && t >= now && !FINAL_STATES.includes(String(b.estado))) return false;
+      if (userFilter && b.cliente?.id !== userFilter) return false;
       return true;
     });
-  }, [allActive, filter]);
+  }, [allActive, filter, userFilter]);
 
   const grouped = useMemo(() => groupByPeriod(filtered, filter), [filtered, filter]);
   const selected = useMemo(
@@ -118,7 +152,7 @@ export default function TrainerCalendar() {
 
         {viewMode === 'calendar' && (
           <>
-            <div className="flex flex-wrap gap-2 mb-3">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
               <DayFilterChip active={dayFilter === 'all'} onClick={() => setDayFilter('all')}>
                 Toda la semana
               </DayFilterChip>
@@ -128,6 +162,11 @@ export default function TrainerCalendar() {
               <DayFilterChip active={dayFilter === 'weekend'} onClick={() => setDayFilter('weekend')}>
                 Solo fin de semana
               </DayFilterChip>
+              <ClientSelect
+                value={userFilter}
+                onChange={updateUserFilter}
+                clients={clients}
+              />
             </div>
 
             <Card padding={14}>
@@ -135,11 +174,11 @@ export default function TrainerCalendar() {
                 <div className="h-[600px] animate-pulse" />
               ) : error ? (
                 <p className="text-err-fg p-4">{error.message}</p>
-              ) : allActive.length === 0 ? (
-                <EmptyCalendar />
+              ) : calendarBookings.length === 0 ? (
+                <EmptyCalendar filtered={!!userFilter} />
               ) : (
                 <CalendarView
-                  bookings={allActive}
+                  bookings={calendarBookings}
                   unavailability={unavailability ?? []}
                   defaultView="timeGridWeek"
                   showLabel="cliente"
@@ -154,7 +193,7 @@ export default function TrainerCalendar() {
 
         {viewMode === 'list' && (
           <>
-            <div className="flex gap-2 mb-5 overflow-x-auto">
+            <div className="flex flex-wrap items-center gap-2 mb-5">
               <FilterChip active={filter === 'upcoming'} onClick={() => setFilter('upcoming')}>
                 Próximas
               </FilterChip>
@@ -164,6 +203,11 @@ export default function TrainerCalendar() {
               <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>
                 Todas
               </FilterChip>
+              <ClientSelect
+                value={userFilter}
+                onChange={updateUserFilter}
+                clients={clients}
+              />
             </div>
 
             {loading && (
@@ -184,7 +228,11 @@ export default function TrainerCalendar() {
                 <div className="text-center">
                   <Icon name="cal" size={28} color="#6B746A" className="mx-auto mb-3" />
                   <p className="text-fg-2">
-                    {filter === 'upcoming' ? 'Sin sesiones próximas.' : 'Sin sesiones aquí.'}
+                    {userFilter
+                      ? 'Sin sesiones para este cliente con el filtro actual.'
+                      : filter === 'upcoming'
+                      ? 'Sin sesiones próximas.'
+                      : 'Sin sesiones aquí.'}
                   </p>
                 </div>
               </Card>
@@ -587,11 +635,41 @@ function DayFilterChip({
   );
 }
 
-function EmptyCalendar() {
+function EmptyCalendar({ filtered }: { filtered?: boolean }) {
   return (
     <div className="text-center py-16">
       <Icon name="cal" size={32} color="#6B746A" className="mx-auto mb-3" />
-      <p className="text-fg-2">Sin sesiones agendadas todavía.</p>
+      <p className="text-fg-2">
+        {filtered ? 'Este cliente no tiene sesiones aquí.' : 'Sin sesiones agendadas todavía.'}
+      </p>
+    </div>
+  );
+}
+
+function ClientSelect({
+  value,
+  onChange,
+  clients,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  clients: Array<{ id: string; nombre: string }>;
+}) {
+  if (clients.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 ml-auto">
+      <Icon name="user" size={12} color="#6B746A" />
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8 px-2 rounded-lg bg-surface-2 border border-line-2 text-fg text-[12px] focus:outline-none focus:border-accent/60"
+        aria-label="Filtrar por cliente"
+      >
+        <option value="">Todos los clientes</option>
+        {clients.map((c) => (
+          <option key={c.id} value={c.id}>{c.nombre}</option>
+        ))}
+      </select>
     </div>
   );
 }
