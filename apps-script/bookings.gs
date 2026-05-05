@@ -91,6 +91,11 @@ function bookingsSubmit(payload, ctx) {
 
     // Cargar perfil del trainer (para visibilidad)
     const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+    const workWindow = bookings_checkWorkingWindow_(trainerProfile, fechaInicio, duracionMin);
+    if (!workWindow.allowed) {
+      throw _bookingErr_('TRAINER_OUTSIDE_WORK_HOURS',
+        'El profesional no atiende en esa franja horaria');
+    }
 
     // Resolver el plan_catalogo del booking (para leer caps definidos en el plan)
     let planCatalogo = null;
@@ -630,6 +635,57 @@ function bookings_overlaps_(aStart, aDur, bStart, bDur) {
   return aS < bE && bS < aE;
 }
 
+function bookings_checkWorkingWindow_(trainerProfile, fechaInicioUtc, durationMin) {
+  if (!trainerProfile || !trainerProfile.franja_trabajo) {
+    return { allowed: true };
+  }
+
+  const franja = trainerProfile.franja_trabajo;
+  if (typeof franja !== 'object') return { allowed: true };
+  if (Object.keys(franja).length === 0) return { allowed: true };
+
+  const start = new Date(fechaInicioUtc);
+  const end = new Date(start.getTime() + (Number(durationMin) || 60) * 60000);
+  const tz = 'America/Bogota';
+  const dow = Number(Utilities.formatDate(start, tz, 'u')); // 1=lun ... 7=dom
+  const dayKeys = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'];
+  const dayKey = dayKeys[dow - 1] || '';
+  const ranges = franja[dayKey] || franja[String(dow)] || franja[String(dow % 7)];
+  if (!ranges || !Array.isArray(ranges) || ranges.length === 0) {
+    return { allowed: false };
+  }
+
+  const startMin = bookings_minutesInTz_(start, tz);
+  const endMin = bookings_minutesInTz_(end, tz);
+  for (let i = 0; i < ranges.length; i++) {
+    const parts = String(ranges[i] || '').split('-');
+    if (parts.length !== 2) continue;
+    const from = bookings_timeToMinutes_(parts[0]);
+    const to = bookings_timeToMinutes_(parts[1]);
+    if (from == null || to == null) continue;
+    if (startMin >= from && endMin <= to) {
+      return { allowed: true };
+    }
+  }
+
+  return { allowed: false };
+}
+
+function bookings_minutesInTz_(date, tz) {
+  const hh = Number(Utilities.formatDate(date, tz, 'HH'));
+  const mm = Number(Utilities.formatDate(date, tz, 'mm'));
+  return hh * 60 + mm;
+}
+
+function bookings_timeToMinutes_(value) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
 function bookings_getDraftTtl_() {
   const cfg = dbFindById('config', 'app.draft_booking_ttl_minutes');
   return cfg ? Number(cfg.value) : 10;
@@ -688,6 +744,8 @@ function bookingsGetSlotCapacity(payload, _ctx) {
 
   const cap = bookings_getCap_(planCatalogo, tipo);
   const stricts = bookings_getCapStrict_(planCatalogo, tipo);
+  const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+  const workWindow = bookings_checkWorkingWindow_(trainerProfile, fechaInicio, duracionMin);
 
   const sameSlot = dbListAll('agendamientos', function (b) {
     if (b.entrenador_id !== trainerId) return false;
@@ -706,6 +764,7 @@ function bookingsGetSlotCapacity(payload, _ctx) {
     estricto: stricts,
     lleno: lleno,
     tipo: tipo,
+    trainerFueraHorario: !workWindow.allowed,
     sedeBloqueada: sedeId ? !!sedeBlocks_checkConflict_(sedeId, fechaInicio, duracionMin) : false,
   };
 }

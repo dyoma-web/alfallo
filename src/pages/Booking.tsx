@@ -58,6 +58,7 @@ interface SlotCapacity {
   estricto: boolean;
   lleno: boolean;
   tipo: string;
+  trainerFueraHorario?: boolean;
   sedeBloqueada?: boolean;
 }
 
@@ -263,6 +264,8 @@ export default function Booking() {
           setSubmitError('El plan asignado no es válido. Contacta al equipo.');
         } else if (err.code === 'TRAINER_NOT_AVAILABLE') {
           setSubmitError('El entrenador no está disponible.');
+        } else if (err.code === 'TRAINER_OUTSIDE_WORK_HOURS') {
+          setSubmitError('Ese horario está fuera de la franja de atención del profesional.');
         } else if (err.code === 'SEDE_BLOCKED') {
           setSubmitError('La sede está bloqueada en ese horario. Elige otra sede u otra franja.');
         } else {
@@ -492,6 +495,11 @@ export default function Booking() {
                 La sede seleccionada aparece bloqueada en esa franja. Elige otra sede u otro horario.
               </WarningCard>
             )}
+            {slotCap && slotCap.trainerFueraHorario && (
+              <WarningCard>
+                Ese horario está fuera de la franja de atención del profesional. Elige otra hora disponible.
+              </WarningCard>
+            )}
             {slotCap && !slotCap.lleno && slotCap.cap > 1 && (
               <p className="text-[12px] text-fg-3">
                 Cupo de "{slotCap.tipo}" en esa franja: {slotCap.tomados}/{slotCap.cap} tomados ·{' '}
@@ -520,7 +528,7 @@ export default function Booking() {
                 type="submit"
                 size="lg"
                 full
-                disabled={submit.loading || !bookingId || noTrainers || !!slotCap?.sedeBloqueada}
+                disabled={submit.loading || !bookingId || noTrainers || !!slotCap?.sedeBloqueada || !!slotCap?.trainerFueraHorario}
               >
                 {submit.loading ? 'Agendando...' : 'Agendar'}
               </Btn>
