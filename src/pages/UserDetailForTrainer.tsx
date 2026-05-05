@@ -15,6 +15,8 @@ interface UserData {
   nick?: string;
   celular?: string;
   estado: string;
+  accessKind?: 'assigned' | 'shared_sede' | 'admin';
+  sharedSedes?: Array<{ id: string; nombre: string; principal?: boolean }>;
 }
 interface PlanData {
   id: string;
@@ -110,6 +112,12 @@ export default function UserDetailForTrainer() {
                       <span className="flex items-center gap-1">
                         <Icon name="user" size={12} color="currentColor" />
                         {data.user.celular}
+                      </span>
+                    )}
+                    {data.user.accessKind === 'shared_sede' && data.user.sharedSedes && data.user.sharedSedes.length > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Icon name="mapPin" size={12} color="currentColor" />
+                        Sede compartida: {data.user.sharedSedes.map((s) => s.nombre).filter(Boolean).join(', ')}
                       </span>
                     )}
                   </div>

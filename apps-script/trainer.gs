@@ -63,9 +63,11 @@ function trainerGetDashboard(_payload, ctx) {
     return fv <= sevenDaysFromNow && fv >= nowDate;
   });
 
-  // Usuarios activos asignados a este trainer
+  // Usuarios activos accesibles para este profesional:
+  // asignados directamente o compartidos por sede activa.
+  const accessMap = trainer_getAccessibleClientMap_(trainerId);
   const myUsers = dbListAll('usuarios', function (u) {
-    return u.entrenador_asignado_id === trainerId && u.estado === 'active';
+    return !!accessMap[u.id] && u.estado === 'active';
   });
 
   // Enriquecer sesiones con datos del cliente
@@ -125,12 +127,14 @@ function trainerListMyUsers(_payload, ctx) {
     throw _err('FORBIDDEN', 'Solo entrenadores y admin');
   }
   const trainerId = ctx.userId;
+  const accessMap = trainer_getAccessibleClientMap_(trainerId);
 
   const users = dbListAll('usuarios', function (u) {
-    return u.entrenador_asignado_id === trainerId && u.rol === 'client';
+    return !!accessMap[u.id] && u.rol === 'client';
   });
 
   return users.map(function (u) {
+    const access = accessMap[u.id] || { kind: 'assigned', sharedSedes: [] };
     // Plan activo
     const planes = dbListAll('planes_usuario', function (p) {
       return p.user_id === u.id && p.estado === 'active';
@@ -172,6 +176,8 @@ function trainerListMyUsers(_payload, ctx) {
       nick: u.nick,
       foto_url: u.foto_url,
       estado: u.estado,
+      accessKind: access.kind,
+      sharedSedes: access.sharedSedes,
       planActivo: planActivo,
       proximaSesionUtc: futuras.length > 0 ? futuras[0].fecha_inicio_utc : null,
       proximaSesionEstado: futuras.length > 0 ? futuras[0].estado : null,
@@ -255,8 +261,13 @@ function trainerGetUserProfile(payload, ctx) {
   const user = dbFindById('usuarios', userId);
   if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
 
-  // Si es trainer, solo puede ver sus usuarios asignados
-  if (ctx.role === 'trainer' && user.entrenador_asignado_id !== ctx.userId) {
+  const accessMap = ctx.role === 'trainer'
+    ? trainer_getAccessibleClientMap_(ctx.userId)
+    : {};
+  const access = accessMap[userId] || null;
+
+  // Si es trainer, puede ver asignados directos o clientes compartidos por sede.
+  if (ctx.role === 'trainer' && !access) {
     throw _err('FORBIDDEN', 'No es tu usuario');
   }
 
@@ -328,6 +339,8 @@ function trainerGetUserProfile(payload, ctx) {
       foto_url: user.foto_url,
       estado: user.estado,
       privacidad_fotos: user.privacidad_fotos,
+      accessKind: access ? access.kind : 'admin',
+      sharedSedes: access ? access.sharedSedes : [],
     },
     planes: planesShape,
     asistencias: asistenciasShape,
@@ -427,4 +440,49 @@ function trainer_endOfDayUtc_(date) {
   const d = new Date(date);
   d.setHours(23, 59, 59, 999);
   return d;
+}
+
+function trainer_getAccessibleClientMap_(trainerId) {
+  const result = {};
+
+  const assigned = dbListAll('usuarios', function (u) {
+    return u.rol === 'client' && u.entrenador_asignado_id === trainerId;
+  });
+  for (let i = 0; i < assigned.length; i++) {
+    result[assigned[i].id] = { kind: 'assigned', sharedSedes: [] };
+  }
+
+  const trainerSedes = dbListAll('sedes_entrenadores', function (st) {
+    return st.entrenador_id === trainerId && st.estado === 'active';
+  });
+  const sedeNames = {};
+  const trainerSedeIds = {};
+  for (let i = 0; i < trainerSedes.length; i++) {
+    const sedeId = trainerSedes[i].sede_id;
+    trainerSedeIds[sedeId] = true;
+    const sede = dbFindById('sedes', sedeId);
+    sedeNames[sedeId] = sede ? sede.nombre : '';
+  }
+
+  if (trainerSedes.length === 0) return result;
+
+  const userSedes = dbListAll('sedes_usuarios', function (su) {
+    return !!trainerSedeIds[su.sede_id];
+  });
+  for (let i = 0; i < userSedes.length; i++) {
+    const rel = userSedes[i];
+    const user = dbFindById('usuarios', rel.user_id);
+    if (!user || user.rol !== 'client') continue;
+
+    const existing = result[user.id] || { kind: 'shared_sede', sharedSedes: [] };
+    if (existing.kind !== 'assigned') existing.kind = 'shared_sede';
+    existing.sharedSedes.push({
+      id: rel.sede_id,
+      nombre: sedeNames[rel.sede_id] || '',
+      principal: rel.principal === true || rel.principal === 'TRUE',
+    });
+    result[user.id] = existing;
+  }
+
+  return result;
 }

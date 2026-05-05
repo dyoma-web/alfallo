@@ -14,6 +14,8 @@ interface UserListItem {
   nick?: string;
   foto_url?: string;
   estado: string;
+  accessKind?: 'assigned' | 'shared_sede';
+  sharedSedes?: Array<{ id: string; nombre: string; principal?: boolean }>;
   planActivo: {
     nombre: string;
     sesionesRestantes: number;
@@ -128,6 +130,11 @@ function UserRow({ user }: { user: UserListItem }) {
               {user.nick && (
                 <span className="text-fg-3 text-[12px]">@{user.nick}</span>
               )}
+              {user.accessKind === 'shared_sede' && (
+                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">
+                  Sede compartida
+                </span>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
@@ -145,6 +152,12 @@ function UserRow({ user }: { user: UserListItem }) {
                 <span className="text-[12px] text-fg-2 flex items-center gap-1">
                   <Icon name="cal" size={11} color="currentColor" />
                   {formatRelative(user.proximaSesionUtc)}
+                </span>
+              )}
+              {user.accessKind === 'shared_sede' && user.sharedSedes && user.sharedSedes.length > 0 && (
+                <span className="text-[12px] text-fg-3 flex items-center gap-1">
+                  <Icon name="mapPin" size={11} color="currentColor" />
+                  {user.sharedSedes.map((s) => s.nombre).filter(Boolean).join(', ')}
                 </span>
               )}
             </div>
