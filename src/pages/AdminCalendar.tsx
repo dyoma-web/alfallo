@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { AppShell } from '../components/layouts/AppShell';
 import { Card } from '../components/Card';
+import { Btn } from '../components/Btn';
 import { Icon } from '../components/Icon';
 import { CalendarView, type CalendarBooking, type UnavailabilityEvent as UnavailabilityEvt } from '../components/calendar/CalendarView';
 import { useApiQuery } from '../lib/useApiQuery';
+import { SedeBlockFormModal } from '../components/admin/SedeBlockFormModal';
 
 interface BookingFromApi extends CalendarBooking {
   user_id: string;
@@ -24,6 +26,7 @@ export default function AdminCalendar() {
   const [filterTrainerId, setFilterTrainerId] = useState('');
   const [filterSedeId, setFilterSedeId] = useState('');
   const [filterUserId, setFilterUserId] = useState('');
+  const [showSedeBlock, setShowSedeBlock] = useState(false);
 
   const { data, error, loading } = useApiQuery<BookingFromApi[]>(
     'listMyBookings',
@@ -60,6 +63,20 @@ export default function AdminCalendar() {
     },
     { deps: [filterTrainerId] }
   );
+  const { data: sedeBlocks, refetch: refetchSedeBlocks } = useApiQuery<UnavailabilityEvt[]>(
+    'expandSedeBlocks',
+    {
+      fromUtc: unavailFrom,
+      toUtc: unavailTo,
+      sedeId: filterSedeId || undefined,
+    },
+    { deps: [filterSedeId] }
+  );
+
+  const calendarBlocks = useMemo(
+    () => [...(unavailability ?? []), ...(sedeBlocks ?? [])],
+    [unavailability, sedeBlocks]
+  );
 
   const labelMode =
     filterUserId ? 'tipo' : filterTrainerId ? 'cliente' : 'auto';
@@ -79,12 +96,17 @@ export default function AdminCalendar() {
               Todos los agendamientos. Filtra por entrenador, sede o usuario.
             </p>
           </div>
-          {bookings.length > 0 && (
-            <div className="text-[12px] text-fg-3">
-              {bookings.length} agendamiento{bookings.length === 1 ? '' : 's'}
-              {activeFilterCount > 0 && ` (${activeFilterCount} filtro${activeFilterCount === 1 ? '' : 's'} activo${activeFilterCount === 1 ? '' : 's'})`}
-            </div>
-          )}
+          <div className="flex items-center gap-3 flex-wrap">
+            {bookings.length > 0 && (
+              <div className="text-[12px] text-fg-3">
+                {bookings.length} agendamiento{bookings.length === 1 ? '' : 's'}
+                {activeFilterCount > 0 && ` (${activeFilterCount} filtro${activeFilterCount === 1 ? '' : 's'} activo${activeFilterCount === 1 ? '' : 's'})`}
+              </div>
+            )}
+            <Btn icon="plus" size="sm" onClick={() => setShowSedeBlock(true)}>
+              Bloquear sede
+            </Btn>
+          </div>
         </div>
 
         {/* Filtros */}
@@ -148,7 +170,7 @@ export default function AdminCalendar() {
 
         {!loading && (
           <Card padding={14}>
-            {bookings.length === 0 ? (
+            {bookings.length === 0 && calendarBlocks.length === 0 ? (
               <div className="text-center py-16">
                 <Icon name="cal" size={32} color="#6B746A" className="mx-auto mb-3" />
                 <p className="text-fg-2">No hay agendamientos en el rango.</p>
@@ -156,7 +178,7 @@ export default function AdminCalendar() {
             ) : (
               <CalendarView
                 bookings={bookings}
-                unavailability={unavailability ?? []}
+                unavailability={calendarBlocks}
                 showTrainerInUnavailability
                 defaultView="timeGridWeek"
                 showLabel={labelMode}
@@ -165,6 +187,17 @@ export default function AdminCalendar() {
             )}
           </Card>
         )}
+
+        <SedeBlockFormModal
+          open={showSedeBlock}
+          sedes={sedes ?? []}
+          initialSedeId={filterSedeId}
+          onClose={() => setShowSedeBlock(false)}
+          onSaved={() => {
+            setShowSedeBlock(false);
+            void refetchSedeBlocks();
+          }}
+        />
       </div>
     </AppShell>
   );

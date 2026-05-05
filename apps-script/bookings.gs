@@ -135,6 +135,12 @@ function bookingsSubmit(payload, ctx) {
         'El entrenador marcó esa franja como no-disponible: "' + unavailRule.titulo + '"');
     }
 
+    const sedeBlock = sedeBlocks_checkConflict_(sedeId, fechaInicio, duracionMin);
+    if (sedeBlock) {
+      throw _bookingErr_('SEDE_BLOCKED',
+        'La sede está bloqueada en esa franja: "' + sedeBlock.motivo + '"');
+    }
+
     // Plan: ¿activo y vigente para esa fecha?
     let usePlanId = '';
     if (planUsuarioId) {
@@ -667,6 +673,7 @@ function bookingsGetSlotCapacity(payload, _ctx) {
   const duracionMin = payload.duracionMin
     ? vNumber(payload.duracionMin, 'duracionMin', { min: 15, max: 240, int: true })
     : 60;
+  const sedeId = payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '';
 
   // Resolver plan_catalogo si el frontend lo pasó
   let planCatalogo = null;
@@ -699,6 +706,7 @@ function bookingsGetSlotCapacity(payload, _ctx) {
     estricto: stricts,
     lleno: lleno,
     tipo: tipo,
+    sedeBloqueada: sedeId ? !!sedeBlocks_checkConflict_(sedeId, fechaInicio, duracionMin) : false,
   };
 }
 

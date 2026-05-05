@@ -58,6 +58,7 @@ interface SlotCapacity {
   estricto: boolean;
   lleno: boolean;
   tipo: string;
+  sedeBloqueada?: boolean;
 }
 
 // Slots cada 30 min entre 06:00 y 21:00
@@ -195,13 +196,14 @@ export default function Booking() {
         fechaInicioUtc,
         tipo: 'personalizado', // por ahora hardcoded como en submit
         duracionMin: selectedDuracion || 60,
+        sedeId: selectedSedeId || undefined,
       },
       { token, retry: false }
     )
       .then((res) => { if (!cancelled) setSlotCap(res); })
       .catch(() => { if (!cancelled) setSlotCap(null); });
     return () => { cancelled = true; };
-  }, [selectedTrainerId, selectedDate, selectedHora, selectedDuracion, token]);
+  }, [selectedTrainerId, selectedDate, selectedHora, selectedDuracion, selectedSedeId, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,6 +263,8 @@ export default function Booking() {
           setSubmitError('El plan asignado no es válido. Contacta al equipo.');
         } else if (err.code === 'TRAINER_NOT_AVAILABLE') {
           setSubmitError('El entrenador no está disponible.');
+        } else if (err.code === 'SEDE_BLOCKED') {
+          setSubmitError('La sede está bloqueada en ese horario. Elige otra sede u otra franja.');
         } else {
           setSubmitError(err.message);
         }
@@ -483,6 +487,11 @@ export default function Booking() {
                 )}
               </WarningCard>
             )}
+            {slotCap && slotCap.sedeBloqueada && (
+              <WarningCard>
+                La sede seleccionada aparece bloqueada en esa franja. Elige otra sede u otro horario.
+              </WarningCard>
+            )}
             {slotCap && !slotCap.lleno && slotCap.cap > 1 && (
               <p className="text-[12px] text-fg-3">
                 Cupo de "{slotCap.tipo}" en esa franja: {slotCap.tomados}/{slotCap.cap} tomados ·{' '}
@@ -511,7 +520,7 @@ export default function Booking() {
                 type="submit"
                 size="lg"
                 full
-                disabled={submit.loading || !bookingId || noTrainers}
+                disabled={submit.loading || !bookingId || noTrainers || !!slotCap?.sedeBloqueada}
               >
                 {submit.loading ? 'Agendando...' : 'Agendar'}
               </Btn>

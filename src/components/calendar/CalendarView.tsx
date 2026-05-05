@@ -36,7 +36,7 @@ export interface UnavailabilityEvent {
   ruleId: string;
   titulo: string;
   descripcion?: string;
-  entityType: 'trainer' | 'global';
+  entityType: 'trainer' | 'global' | 'sede';
   entityId: string;
   start: string;
   end: string;
@@ -150,6 +150,8 @@ export function CalendarView({
         let title = u.titulo;
         if (showTrainerInUnavailability && u.trainerName) {
           title = `${u.trainerName} — ${u.titulo}`;
+        } else if (u.entityType === 'sede') {
+          title = u.titulo;
         } else if (u.entityType === 'global') {
           title = `🌐 ${u.titulo}`;
         }

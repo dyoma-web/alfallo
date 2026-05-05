@@ -270,6 +270,12 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'expandUnavailability':
       return availabilityExpanded(payload, ctx);
 
+    case 'createSedeBlock':
+      return sedeBlocksCreate(payload, ctx);
+
+    case 'expandSedeBlocks':
+      return sedeBlocksExpanded(payload, ctx);
+
     // ── Grupos (Iter 13) ─────────────────────────────────────────────────
     case 'createGrupo':
       return gruposCreate(payload, ctx);

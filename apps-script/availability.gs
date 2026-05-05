@@ -277,6 +277,113 @@ function availability_checkConflict_(trainerId, fechaInicioUtc, durationMin) {
 // Expansión de recurrencia
 // ──────────────────────────────────────────────────────────────────────────
 
+function sedeBlocksCreate(payload, ctx) {
+  if (ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo admin puede bloquear sedes');
+  }
+
+  const sedeId = vUuid(vRequired(payload.sedeId, 'sedeId'), 'sedeId');
+  const sede = dbFindById('sedes', sedeId);
+  if (!sede) throw _err('NOT_FOUND', 'Sede no encontrada');
+
+  const desdeUtc = vIsoDate(vRequired(payload.desdeUtc, 'desdeUtc'), 'desdeUtc');
+  const hastaUtc = vIsoDate(vRequired(payload.hastaUtc, 'hastaUtc'), 'hastaUtc');
+  if (new Date(hastaUtc) <= new Date(desdeUtc)) {
+    throw _err('VALIDATION', 'La fecha fin debe ser posterior al inicio');
+  }
+
+  const motivo = vString(payload.motivo || 'Sede bloqueada', 'motivo', { max: 300 });
+  const id = cryptoUuid();
+  const now = dbNowUtc();
+  const block = {
+    id: id,
+    sede_id: sedeId,
+    desde_utc: desdeUtc,
+    hasta_utc: hastaUtc,
+    motivo: motivo,
+    creado_por: ctx.userId,
+    created_at: now,
+  };
+
+  dbInsert('sedes_bloqueos', block);
+  auditOk(ctx.userId, 'create_sede_block', 'sedes_bloqueos', id,
+    '', JSON.stringify({ sedeId: sedeId, motivo: motivo }), ctx.reqMeta);
+  return { block: block };
+}
+
+function sedeBlocksExpanded(payload, ctx) {
+  const isAdmin = ctx.role === 'admin' || ctx.role === 'super_admin';
+  const isTrainer = ctx.role === 'trainer';
+  const isClient = ctx.role === 'client';
+  if (!isAdmin && !isTrainer && !isClient) {
+    throw _err('FORBIDDEN', 'Sin permiso');
+  }
+
+  const fromUtc = vIsoDate(vRequired(payload.fromUtc, 'fromUtc'), 'fromUtc');
+  const toUtc = vIsoDate(vRequired(payload.toUtc, 'toUtc'), 'toUtc');
+  const fromTs = new Date(fromUtc).getTime();
+  const toTs = new Date(toUtc).getTime();
+  const filterSedeId = payload.sedeId ? String(payload.sedeId) : '';
+
+  const allowedSedes = {};
+  if (!isAdmin) {
+    const sheet = isTrainer ? 'sedes_entrenadores' : 'sedes_usuarios';
+    const userCol = isTrainer ? 'entrenador_id' : 'user_id';
+    const rows = dbListAll(sheet, function (r) {
+      if (String(r[userCol]) !== ctx.userId) return false;
+      if (isTrainer && r.estado !== 'active') return false;
+      return true;
+    });
+    for (let i = 0; i < rows.length; i++) {
+      allowedSedes[rows[i].sede_id] = true;
+    }
+  }
+
+  const sedeCache = {};
+  function lookupSedeName(id) {
+    if (!id) return '';
+    if (id in sedeCache) return sedeCache[id];
+    const s = dbFindById('sedes', id);
+    sedeCache[id] = s ? s.nombre : '';
+    return sedeCache[id];
+  }
+
+  return dbListAll('sedes_bloqueos', function (b) {
+    if (filterSedeId && b.sede_id !== filterSedeId) return false;
+    if (!isAdmin && !allowedSedes[b.sede_id]) return false;
+    const start = new Date(b.desde_utc).getTime();
+    const end = new Date(b.hasta_utc).getTime();
+    return start < toTs && fromTs < end;
+  }).map(function (b) {
+    const sedeName = lookupSedeName(b.sede_id);
+    return {
+      ruleId: b.id,
+      titulo: sedeName ? ('Sede bloqueada: ' + sedeName) : 'Sede bloqueada',
+      descripcion: b.motivo,
+      entityType: 'sede',
+      entityId: b.sede_id,
+      sedeName: sedeName,
+      start: b.desde_utc,
+      end: b.hasta_utc,
+    };
+  });
+}
+
+function sedeBlocks_checkConflict_(sedeId, fechaInicioUtc, durationMin) {
+  if (!sedeId) return null;
+  const bStart = new Date(fechaInicioUtc).getTime();
+  const bEnd = bStart + (Number(durationMin) || 60) * 60000;
+
+  const blocks = dbListAll('sedes_bloqueos', function (b) {
+    if (b.sede_id !== sedeId) return false;
+    const start = new Date(b.desde_utc).getTime();
+    const end = new Date(b.hasta_utc).getTime();
+    return start < bEnd && bStart < end;
+  });
+
+  return blocks.length > 0 ? blocks[0] : null;
+}
+
 function availability_expand_(rule, fromUtc, toUtc) {
   const fromTs = new Date(fromUtc).getTime();
   const toTs = new Date(toUtc).getTime();
