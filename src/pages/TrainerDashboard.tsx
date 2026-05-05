@@ -231,7 +231,7 @@ export default function TrainerDashboard() {
                     bookings={calBookings}
                     defaultView="timeGridWeek"
                     showLabel="cliente"
-                    height={500}
+                    height="auto"
                     onBookingClick={() => navigate('/calendario')}
                   />
                 </Card>
