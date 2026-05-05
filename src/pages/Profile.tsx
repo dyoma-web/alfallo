@@ -242,6 +242,15 @@ function currentPeriod(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+function shiftPeriod(period: string, delta: number): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!m) return period;
+  const year = Number(m[1]);
+  const monthIdx = Number(m[2]) - 1 + delta;
+  const date = new Date(year, monthIdx, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function formatPeriodSpanish(period: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(period);
   if (!m) return period;
@@ -259,10 +268,13 @@ function formatPeriodSpanish(period: string): string {
 function TrainerMetasSection() {
   const toast = useToast();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
-  const period = currentPeriod();
+  const today = currentPeriod();
+  const [period, setPeriod] = useState(today);
+  const isCurrent = period === today;
   const { data, loading, error, refetch } = useApiQuery<MetasResponse>(
     'listMyMetas',
-    { period }
+    { period },
+    { deps: [period] }
   );
   const create = useApiMutation('createMyMeta');
   const update = useApiMutation('updateMyMeta');
@@ -294,16 +306,42 @@ function TrainerMetasSection() {
 
   return (
     <Card padding={20} className="mt-4">
-      <div className="flex items-center justify-between mb-3 gap-2">
-        <div>
+      <div className="flex items-start justify-between mb-3 gap-2 flex-wrap">
+        <div className="min-w-0">
           <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
-            Metas — {formatPeriodSpanish(period)}
+            Metas — <span className="text-fg-2">{formatPeriodSpanish(period)}</span>
           </div>
           <p className="text-fg-3 text-[11px] mt-0.5">
             El tier se calcula sumando todas las metas de tipo Económica.
           </p>
         </div>
-        <Icon name="trophy" size={14} color="#A8B0A4" />
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setPeriod((p) => shiftPeriod(p, -1))}
+            aria-label="Mes anterior"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-fg-2 hover:text-fg hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            <Icon name="arrow" size={14} color="currentColor" className="rotate-180" />
+          </button>
+          {!isCurrent && (
+            <button
+              type="button"
+              onClick={() => setPeriod(today)}
+              className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 hover:text-fg px-2 h-7 rounded-md hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              Hoy
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setPeriod((p) => shiftPeriod(p, 1))}
+            aria-label="Mes siguiente"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-fg-2 hover:text-fg hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            <Icon name="arrow" size={14} color="currentColor" />
+          </button>
+        </div>
       </div>
 
       {loading && <div className="text-fg-3 text-[12px]">Cargando...</div>}
@@ -314,7 +352,9 @@ function TrainerMetasSection() {
 
       {data && data.items.length === 0 && !showAdd && (
         <p className="text-fg-3 text-[12px] mb-3">
-          Aún no tienes metas para este mes.
+          {isCurrent
+            ? 'Aún no tienes metas para este mes.'
+            : 'No hay metas registradas para este mes.'}
         </p>
       )}
 
