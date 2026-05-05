@@ -32,6 +32,7 @@ const SCHEMA = {
     'politica_cancelacion_id', 'visibilidad_default', 'cupos_estrictos',
     'cupos_personalizado', 'cupos_semipersonalizado', 'cupos_grupal',
     'meta_economica_mensual', 'meta_usuarios_activos',
+    'categoria_profesional', 'tipo_profesional',
     'calificacion_promedio', 'total_calificaciones',
     'created_at', 'updated_at'
   ],

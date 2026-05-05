@@ -39,9 +39,19 @@ interface UserListItem {
   last_login_at?: string;
   created_at?: string;
   hasTrainerProfile?: boolean;
+  categoriaProfesional?: string;
+  tipoProfesional?: string;
   sedes?: SedeRef[];
   gimnasios?: GymRef[];
 }
+
+const CATEGORIA_PRO_LABEL: Record<string, string> = {
+  entrenador: 'Entrenador',
+  fisio: 'Fisio',
+  evaluador: 'Evaluador',
+  nutricionista: 'Nutricionista',
+  otro: 'Otra',
+};
 
 type GroupBy = 'none' | 'rol' | 'sede' | 'gimnasio';
 
@@ -441,17 +451,27 @@ function UserDetailModal({
   }
 
   if (user.rol === 'trainer') {
-    sections.push({
-      fields: [
-        {
-          label: 'Perfil profesional',
-          value: user.hasTrainerProfile
-            ? 'Configurado · usa el botón "Perfil profesional" para ver/editar'
-            : 'Sin configurar · usa el botón "Perfil profesional" para crearlo',
-          fullWidth: true,
-        },
-      ],
+    const trainerFields: DetailSection['fields'] = [];
+    if (user.categoriaProfesional && CATEGORIA_PRO_LABEL[user.categoriaProfesional]) {
+      trainerFields.push({
+        label: 'Categoría',
+        value: CATEGORIA_PRO_LABEL[user.categoriaProfesional],
+      });
+    }
+    if (user.tipoProfesional) {
+      trainerFields.push({
+        label: 'Tipo / especialidad',
+        value: user.tipoProfesional,
+      });
+    }
+    trainerFields.push({
+      label: 'Perfil profesional',
+      value: user.hasTrainerProfile
+        ? 'Configurado · usa el botón "Perfil profesional" para ver/editar'
+        : 'Sin configurar · usa el botón "Perfil profesional" para crearlo',
+      fullWidth: true,
     });
+    sections.push({ fields: trainerFields });
   }
 
   return (
@@ -652,8 +672,18 @@ function UserRow({
                 <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-fg-3">
                   {ROLE_LABEL[user.rol] ?? user.rol}
                 </span>
+                {user.rol === 'trainer' && user.categoriaProfesional && CATEGORIA_PRO_LABEL[user.categoriaProfesional] && (
+                  <span className="text-[10px] font-mono uppercase tracking-[0.12em] px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">
+                    {CATEGORIA_PRO_LABEL[user.categoriaProfesional]}
+                  </span>
+                )}
               </div>
-              <div className="text-fg-2 text-[12px] mt-0.5 truncate">{user.email}</div>
+              <div className="text-fg-2 text-[12px] mt-0.5 truncate">
+                {user.email}
+                {user.rol === 'trainer' && user.tipoProfesional && (
+                  <span className="text-fg-3"> · {user.tipoProfesional}</span>
+                )}
+              </div>
               {(user.gimnasios && user.gimnasios.length > 0) || (user.sedes && user.sedes.length > 0) ? (
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {user.gimnasios?.slice(0, 2).map((g) => (

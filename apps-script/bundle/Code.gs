@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-04T23:21:13.915Z                              ║
+ * ║  Built:   2026-05-05T00:18:27.214Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -50,6 +50,7 @@ const SCHEMA = {
     'politica_cancelacion_id', 'visibilidad_default', 'cupos_estrictos',
     'cupos_personalizado', 'cupos_semipersonalizado', 'cupos_grupal',
     'meta_economica_mensual', 'meta_usuarios_activos',
+    'categoria_profesional', 'tipo_profesional',
     'calificacion_promedio', 'total_calificaciones',
     'created_at', 'updated_at'
   ],
@@ -3654,9 +3655,10 @@ function adminListUsers(payload, ctx) {
 
   // Enriquecer trainers con flag de tener perfil + sedes/gimnasios
   return users.map(function (u) {
-    const hasTrainerProfile = u.rol === 'trainer'
-      ? !!dbFindById('entrenadores_perfil', u.id)
-      : false;
+    const trainerProfile = u.rol === 'trainer'
+      ? dbFindById('entrenadores_perfil', u.id)
+      : null;
+    const hasTrainerProfile = !!trainerProfile;
 
     // Sedes a las que pertenece (clientes vía sedes_usuarios; trainers vía sedes_entrenadores)
     let sedesIds = [];
@@ -3693,6 +3695,8 @@ function adminListUsers(payload, ctx) {
       created_at: u.created_at,
       last_login_at: u.last_login_at,
       hasTrainerProfile: hasTrainerProfile,
+      categoriaProfesional: trainerProfile ? (trainerProfile.categoria_profesional || '') : '',
+      tipoProfesional: trainerProfile ? (trainerProfile.tipo_profesional || '') : '',
       sedes: sedesEnriched,
       gimnasios: gimnasios,
     };
@@ -3947,6 +3951,13 @@ function adminUpsertTrainerProfile(payload, ctx) {
       ? Math.max(1, Number(payload.cuposGrupal)) : 15,
     meta_economica_mensual: payload.metaEconomicaMensual ? Number(payload.metaEconomicaMensual) : 0,
     meta_usuarios_activos: payload.metaUsuariosActivos ? Number(payload.metaUsuariosActivos) : 0,
+    categoria_profesional: payload.categoriaProfesional
+      ? vEnum(payload.categoriaProfesional, 'categoriaProfesional',
+          ['entrenador', 'fisio', 'evaluador', 'nutricionista', 'otro'])
+      : 'entrenador',
+    tipo_profesional: payload.tipoProfesional
+      ? vString(payload.tipoProfesional, 'tipoProfesional', { max: 120 })
+      : '',
     updated_at: dbNowUtc(),
   };
 

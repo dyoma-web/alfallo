@@ -6,6 +6,16 @@ import { Btn } from '../Btn';
 import { Icon } from '../Icon';
 import { useApiQuery, useApiMutation } from '../../lib/useApiQuery';
 
+type CategoriaProfesional = 'entrenador' | 'fisio' | 'evaluador' | 'nutricionista' | 'otro';
+
+const CATEGORIA_LABEL: Record<CategoriaProfesional, string> = {
+  entrenador: 'Entrenador',
+  fisio: 'Fisioterapeuta',
+  evaluador: 'Evaluador',
+  nutricionista: 'Nutricionista',
+  otro: 'Otra',
+};
+
 interface TrainerProfile {
   user_id: string;
   perfil_profesional?: string;
@@ -15,9 +25,13 @@ interface TrainerProfile {
   visibilidad_default?: string;
   meta_economica_mensual?: number | string;
   meta_usuarios_activos?: number | string;
+  categoria_profesional?: string;
+  tipo_profesional?: string;
 }
 
 interface ProfileForm {
+  categoriaProfesional: CategoriaProfesional;
+  tipoProfesional: string;
   perfilProfesional: string;
   habilidades: string;
   tiposEntrenamiento: string;
@@ -50,6 +64,8 @@ export function TrainerProfileModal({ open, trainerId, trainerName, onClose, onS
     reset,
   } = useForm<ProfileForm>({
     defaultValues: {
+      categoriaProfesional: 'entrenador',
+      tipoProfesional: '',
       perfilProfesional: '',
       habilidades: '',
       tiposEntrenamiento: '',
@@ -64,6 +80,8 @@ export function TrainerProfileModal({ open, trainerId, trainerName, onClose, onS
     if (open && existing) {
       const p = existing.profile;
       reset({
+        categoriaProfesional: (p?.categoria_profesional as CategoriaProfesional) || 'entrenador',
+        tipoProfesional: p?.tipo_profesional ?? '',
         perfilProfesional: p?.perfil_profesional ?? '',
         habilidades: p?.habilidades ?? '',
         tiposEntrenamiento: p?.tipos_entrenamiento ?? '',
@@ -81,6 +99,8 @@ export function TrainerProfileModal({ open, trainerId, trainerName, onClose, onS
     try {
       await upsert.mutate({
         userId: trainerId,
+        categoriaProfesional: values.categoriaProfesional,
+        tipoProfesional: values.tipoProfesional,
         perfilProfesional: values.perfilProfesional,
         habilidades: values.habilidades.split(',').map((s) => s.trim()).filter(Boolean),
         tiposEntrenamiento: values.tiposEntrenamiento.split(',').map((s) => s.trim()).filter(Boolean),
@@ -111,6 +131,40 @@ export function TrainerProfileModal({ open, trainerId, trainerName, onClose, onS
         </div>
       ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="px-5 py-5 space-y-5">
+          {/* Sección: Categoría */}
+          <Section
+            title="Categoría profesional"
+            description="Define cómo aparece en listados y filtros del admin."
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label
+                  htmlFor="trainer-categoria"
+                  className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-1.5"
+                >
+                  Categoría
+                </label>
+                <select
+                  id="trainer-categoria"
+                  {...register('categoriaProfesional')}
+                  className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60"
+                >
+                  {(Object.keys(CATEGORIA_LABEL) as CategoriaProfesional[]).map((k) => (
+                    <option key={k} value={k}>
+                      {CATEGORIA_LABEL[k]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Field
+                label="Tipo / especialidad"
+                placeholder="Ej. Fisioterapeuta deportiva, Coach de fuerza..."
+                hint="Texto libre. Se muestra debajo del nombre."
+                {...register('tipoProfesional')}
+              />
+            </div>
+          </Section>
+
           {/* Sección: Perfil profesional */}
           <Section title="Información profesional">
             <div>
