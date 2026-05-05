@@ -504,6 +504,7 @@ function bookingsListMine(payload, ctx) {
   // Enriquecer con datos del entrenador, sede y cliente
   const userCache = {};
   const sedeCache = {};
+  const gymCache = {};
 
   function lookupUser(id) {
     if (!id) return null;
@@ -519,7 +520,21 @@ function bookingsListMine(payload, ctx) {
     if (!id) return null;
     if (!(id in sedeCache)) {
       const s = dbFindById('sedes', id);
-      sedeCache[id] = s ? { id: s.id, nombre: s.nombre, ciudad: s.ciudad } : null;
+      let gym = null;
+      if (s && s.gimnasio_id) {
+        if (!(s.gimnasio_id in gymCache)) {
+          const g = dbFindById('gimnasios', s.gimnasio_id);
+          gymCache[s.gimnasio_id] = g ? { id: g.id, nombre: g.nombre } : null;
+        }
+        gym = gymCache[s.gimnasio_id];
+      }
+      sedeCache[id] = s ? {
+        id: s.id,
+        nombre: s.nombre,
+        ciudad: s.ciudad,
+        gimnasio_id: s.gimnasio_id || '',
+        gimnasio: gym,
+      } : null;
     }
     return sedeCache[id];
   }

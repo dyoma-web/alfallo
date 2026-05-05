@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '../components/layouts/AppShell';
 import { Card } from '../components/Card';
@@ -31,11 +31,14 @@ interface Sede {
   usuariosCount?: number;
 }
 
+type GroupBy = 'none' | 'gimnasio';
+
 export default function AdminSedes() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showCreate, setShowCreate] = useState(false);
   const [editingSede, setEditingSede] = useState<Sede | null>(null);
   const [viewing, setViewing] = useState<Sede | null>(null);
+  const [groupBy, setGroupBy] = useState<GroupBy>('none');
 
   const { data, error, loading, refetch } = useApiQuery<Sede[]>('adminListSedes');
   const update = useApiMutation('adminUpdateSede');
@@ -122,6 +125,24 @@ export default function AdminSedes() {
         )}
 
         {data && data.length > 0 && (
+          <div className="mb-4 flex justify-end">
+            <label className="sr-only" htmlFor="group-sedes">
+              Agrupar sedes
+            </label>
+            <select
+              id="group-sedes"
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+              className="h-10 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60"
+              title="Agrupar por"
+            >
+              <option value="none">Sin agrupar</option>
+              <option value="gimnasio">Agrupar por gimnasio</option>
+            </select>
+          </div>
+        )}
+
+        {data && data.length > 0 && groupBy === 'none' && (
           <ul className="space-y-2">
             {data.map((s) => (
               <SedeRow
@@ -135,6 +156,17 @@ export default function AdminSedes() {
               />
             ))}
           </ul>
+        )}
+
+        {data && data.length > 0 && groupBy === 'gimnasio' && (
+          <GroupedSedes
+            sedes={data}
+            onView={(s) => setViewing(s)}
+            onEdit={(s) => setEditingSede(s)}
+            onArchive={(s) => handleArchive(s.id)}
+            onReactivate={(s) => handleReactivate(s.id)}
+            busy={update.loading}
+          />
         )}
       </div>
 
@@ -160,6 +192,73 @@ export default function AdminSedes() {
 
       {confirmDialog}
     </AppShell>
+  );
+}
+
+function GroupedSedes({
+  sedes,
+  onView,
+  onEdit,
+  onArchive,
+  onReactivate,
+  busy,
+}: {
+  sedes: Sede[];
+  onView: (s: Sede) => void;
+  onEdit: (s: Sede) => void;
+  onArchive: (s: Sede) => void;
+  onReactivate: (s: Sede) => void;
+  busy: boolean;
+}) {
+  const groups = useMemo(() => {
+    const map = new Map<string, { label: string; sedes: Sede[] }>();
+    const noneKey = '__none__';
+
+    for (const s of sedes) {
+      const gym = s.gimnasio;
+      const key = gym?.id || noneKey;
+      const label = gym?.nombre || 'Sedes independientes';
+      if (!map.has(key)) map.set(key, { label, sedes: [] });
+      map.get(key)!.sedes.push(s);
+    }
+
+    const arr = Array.from(map.entries()).map(([key, value]) => ({ key, ...value }));
+    arr.sort((a, b) => {
+      if (a.key === noneKey) return 1;
+      if (b.key === noneKey) return -1;
+      return a.label.localeCompare(b.label);
+    });
+    return arr;
+  }, [sedes]);
+
+  return (
+    <div className="space-y-6">
+      {groups.map((g) => (
+        <section key={g.key}>
+          <div className="flex items-baseline justify-between mb-2 px-1">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
+              {g.label}
+            </h2>
+            <span className="text-[11px] text-fg-3">
+              {g.sedes.length} {g.sedes.length === 1 ? 'sede' : 'sedes'}
+            </span>
+          </div>
+          <ul className="space-y-2">
+            {g.sedes.map((s) => (
+              <SedeRow
+                key={`${g.key}-${s.id}`}
+                sede={s}
+                onView={() => onView(s)}
+                onEdit={() => onEdit(s)}
+                onArchive={() => onArchive(s)}
+                onReactivate={() => onReactivate(s)}
+                busy={busy}
+              />
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 }
 

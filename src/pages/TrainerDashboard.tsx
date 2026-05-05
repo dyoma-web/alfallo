@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layouts/AppShell';
 import { Card } from '../components/Card';
@@ -65,6 +65,11 @@ interface MetasData {
   planesContados: number;
 }
 
+interface ScopeOption {
+  id: string;
+  nombre: string;
+}
+
 const STATE_TO_BADGE: Record<string, StatusKind> = {
   solicitado: 'pendiente',
   confirmado: 'confirmado',
@@ -81,8 +86,40 @@ export default function TrainerDashboard() {
   const { data, error, loading, refetch } = useApiQuery<DashboardData>('getTrainerDashboard');
   const { data: weekBookings } = useApiQuery<CalendarBooking[]>('listMyBookings');
   const { data: metas } = useApiQuery<MetasData>('getTrainerMetas');
+  const [gymFilter, setGymFilter] = useState('');
+  const [sedeFilter, setSedeFilter] = useState('');
 
-  const calBookings = useMemo(() => weekBookings ?? [], [weekBookings]);
+  const allCalBookings = useMemo(() => weekBookings ?? [], [weekBookings]);
+  const gyms = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of allCalBookings) {
+      const gym = b.sede?.gimnasio;
+      if (gym?.id && !map.has(gym.id)) map.set(gym.id, gym.nombre);
+    }
+    return Array.from(map.entries())
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [allCalBookings]);
+  const sedes = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of allCalBookings) {
+      const sede = b.sede;
+      if (!sede?.id) continue;
+      if (gymFilter && sede.gimnasio?.id !== gymFilter) continue;
+      const label = sede.ciudad ? `${sede.nombre} · ${sede.ciudad}` : sede.nombre;
+      if (!map.has(sede.id)) map.set(sede.id, label);
+    }
+    return Array.from(map.entries())
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [allCalBookings, gymFilter]);
+  const calBookings = useMemo(() => {
+    return allCalBookings.filter((b) => {
+      if (gymFilter && b.sede?.gimnasio?.id !== gymFilter) return false;
+      if (sedeFilter && b.sede?.id !== sedeFilter) return false;
+      return true;
+    });
+  }, [allCalBookings, gymFilter, sedeFilter]);
 
   const confirmM = useApiMutation('confirmBooking');
   const reject = useApiMutation('rejectBooking');
@@ -221,19 +258,36 @@ export default function TrainerDashboard() {
             </Section>
 
             {/* Calendario semanal embebido */}
-            {calBookings.length > 0 && (
+            {allCalBookings.length > 0 && (
               <Section
                 title="Tu semana"
                 action={{ to: '/calendario', label: 'Ver pantalla completa' }}
               >
                 <Card padding={14}>
-                  <CalendarView
-                    bookings={calBookings}
-                    defaultView="timeGridWeek"
-                    showLabel="cliente"
-                    height="auto"
-                    onBookingClick={() => navigate('/calendario')}
+                  <ScopeSelects
+                    gymValue={gymFilter}
+                    sedeValue={sedeFilter}
+                    gyms={gyms}
+                    sedes={sedes}
+                    onGymChange={(id) => {
+                      setGymFilter(id);
+                      setSedeFilter('');
+                    }}
+                    onSedeChange={setSedeFilter}
                   />
+                  {calBookings.length === 0 ? (
+                    <p className="text-fg-2 text-sm py-8 text-center">
+                      Sin sesiones para el filtro actual.
+                    </p>
+                  ) : (
+                    <CalendarView
+                      bookings={calBookings}
+                      defaultView="timeGridWeek"
+                      showLabel="cliente"
+                      height="auto"
+                      onBookingClick={() => navigate('/calendario')}
+                    />
+                  )}
                 </Card>
               </Section>
             )}
@@ -259,6 +313,57 @@ export default function TrainerDashboard() {
 // ──────────────────────────────────────────────────────────────────────────
 // Subcomponentes
 // ──────────────────────────────────────────────────────────────────────────
+
+function ScopeSelects({
+  gymValue,
+  sedeValue,
+  gyms,
+  sedes,
+  onGymChange,
+  onSedeChange,
+}: {
+  gymValue: string;
+  sedeValue: string;
+  gyms: ScopeOption[];
+  sedes: ScopeOption[];
+  onGymChange: (id: string) => void;
+  onSedeChange: (id: string) => void;
+}) {
+  if (gyms.length === 0 && sedes.length === 0) return null;
+  return (
+    <div className="flex items-center justify-end gap-1.5 flex-wrap mb-3">
+      {gyms.length > 0 && (
+        <>
+          <Icon name="building" size={12} color="#6B746A" />
+          <select
+            value={gymValue}
+            onChange={(e) => onGymChange(e.target.value)}
+            className="h-8 px-2 rounded-lg bg-surface-2 border border-line-2 text-fg text-[12px] focus:outline-none focus:border-accent/60"
+            aria-label="Filtrar semana por gimnasio"
+          >
+            <option value="">Todos los gimnasios</option>
+            {gyms.map((g) => (
+              <option key={g.id} value={g.id}>{g.nombre}</option>
+            ))}
+          </select>
+        </>
+      )}
+      {sedes.length > 0 && (
+        <select
+          value={sedeValue}
+          onChange={(e) => onSedeChange(e.target.value)}
+          className="h-8 px-2 rounded-lg bg-surface-2 border border-line-2 text-fg text-[12px] focus:outline-none focus:border-accent/60"
+          aria-label="Filtrar semana por sede"
+        >
+          <option value="">Todas las sedes</option>
+          {sedes.map((s) => (
+            <option key={s.id} value={s.id}>{s.nombre}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
 
 const TIER_META: Record<MetaTier, {
   label: string;

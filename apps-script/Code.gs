@@ -148,6 +148,9 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'listMyUsers':
       return trainerListMyUsers(payload, ctx);
 
+    case 'listMyWorkLocations':
+      return trainerListMyWorkLocations(payload, ctx);
+
     case 'getUserOperationalProfile':
       return trainerGetUserProfile(payload, ctx);
 

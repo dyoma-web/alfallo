@@ -19,6 +19,20 @@ interface ProfileForm {
   celular: string;
 }
 
+interface WorkSede {
+  id: string;
+  nombre: string;
+  ciudad?: string;
+  barrio?: string;
+  direccion?: string;
+  gimnasio?: { id: string; nombre: string } | null;
+}
+
+interface WorkLocationsResponse {
+  sedes: WorkSede[];
+  gimnasios: Array<{ id: string; nombre: string }>;
+}
+
 const PRIVACY_LABELS: Record<string, string> = {
   solo_yo: 'Solo yo',
   mi_entrenador: 'Mi entrenador',
@@ -167,7 +181,10 @@ export default function Profile() {
             </Card>
 
             {(profile.rol === 'trainer' || profile.rol === 'admin' || profile.rol === 'super_admin') && (
-              <TrainerMetasSection />
+              <>
+                <TrainerMetasSection />
+                <WorkLocationsSection />
+              </>
             )}
 
             <Card padding={20} className="mt-4">
@@ -210,6 +227,82 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-fg-3 text-sm">{label}</span>
       <span className="text-fg-2 text-sm text-right">{children}</span>
     </div>
+  );
+}
+
+function WorkLocationsSection() {
+  const { data, loading, error } = useApiQuery<WorkLocationsResponse>('listMyWorkLocations');
+
+  return (
+    <Card padding={20} className="mt-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
+            Trabajo en estos gimnasios
+          </div>
+          <p className="text-fg-3 text-[11px] mt-0.5">
+            Asignaciones activas definidas por el equipo administrativo.
+          </p>
+        </div>
+        <Icon name="building" size={18} color="#6B746A" />
+      </div>
+
+      {loading && <div className="text-fg-3 text-[12px]">Cargando...</div>}
+
+      {error && !loading && (
+        <p className="text-err-fg text-[12px]">{error.message}</p>
+      )}
+
+      {data && data.sedes.length === 0 && (
+        <p className="text-fg-3 text-[12px]">
+          Aún no tienes sedes asignadas.
+        </p>
+      )}
+
+      {data && data.sedes.length > 0 && (
+        <>
+          {data.gimnasios.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {data.gimnasios.map((g) => (
+                <span
+                  key={g.id}
+                  className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20"
+                >
+                  {g.nombre}
+                </span>
+              ))}
+            </div>
+          )}
+          <ul className="space-y-2">
+            {data.sedes.map((s) => (
+              <li
+                key={s.id}
+                className="flex items-start gap-3 rounded-xl border border-line bg-surface-2 p-3"
+              >
+                <div className="w-8 h-8 rounded-lg bg-surface border border-line flex items-center justify-center flex-none">
+                  <Icon name="mapPin" size={14} color="#A8B0A4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm">{s.nombre}</span>
+                    {s.gimnasio?.nombre && (
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-fg-3">
+                        {s.gimnasio.nombre}
+                      </span>
+                    )}
+                  </div>
+                  {(s.direccion || s.barrio || s.ciudad) && (
+                    <div className="text-fg-3 text-[12px] mt-0.5">
+                      {[s.direccion, s.barrio, s.ciudad].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
   );
 }
 

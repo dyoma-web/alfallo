@@ -191,6 +191,61 @@ function trainerListMyUsers(_payload, ctx) {
 // getUserOperationalProfile — vista del entrenador sobre uno de sus clientes
 // ──────────────────────────────────────────────────────────────────────────
 
+function trainerListMyWorkLocations(_payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo profesionales y admin');
+  }
+  const trainerId = ctx.userId;
+
+  const assignments = dbListAll('sedes_entrenadores', function (st) {
+    return st.entrenador_id === trainerId && st.estado === 'active';
+  });
+
+  const gymIds = {};
+  const sedes = assignments.map(function (a) {
+    const s = dbFindById('sedes', a.sede_id);
+    if (!s) return null;
+    let gym = null;
+    if (s.gimnasio_id) {
+      const g = dbFindById('gimnasios', s.gimnasio_id);
+      if (g) {
+        gym = { id: g.id, nombre: g.nombre };
+        gymIds[g.id] = g.nombre;
+      }
+    }
+    return {
+      id: s.id,
+      nombre: s.nombre,
+      ciudad: s.ciudad,
+      barrio: s.barrio,
+      direccion: s.direccion,
+      gimnasio_id: s.gimnasio_id || '',
+      gimnasio: gym,
+      desde: a.desde,
+      hasta: a.hasta,
+    };
+  }).filter(Boolean);
+
+  sedes.sort(function (a, b) {
+    const ag = a.gimnasio ? a.gimnasio.nombre : 'zz';
+    const bg = b.gimnasio ? b.gimnasio.nombre : 'zz';
+    const byGym = ag.localeCompare(bg);
+    if (byGym !== 0) return byGym;
+    return String(a.nombre || '').localeCompare(String(b.nombre || ''));
+  });
+
+  const gimnasios = Object.keys(gymIds).map(function (id) {
+    return { id: id, nombre: gymIds[id] };
+  }).sort(function (a, b) {
+    return a.nombre.localeCompare(b.nombre);
+  });
+
+  return {
+    sedes: sedes,
+    gimnasios: gimnasios,
+  };
+}
+
 function trainerGetUserProfile(payload, ctx) {
   if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
     throw _err('FORBIDDEN', 'Solo entrenadores y admin');

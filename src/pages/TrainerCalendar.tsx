@@ -47,6 +47,11 @@ const FINAL_STATES = ['cancelado', 'completado', 'no-asistido', 'rechazado', 'ex
 type ViewMode = 'list' | 'calendar';
 type DayFilter = 'all' | 'weekdays' | 'weekend';
 
+interface ScopeOption {
+  id: string;
+  nombre: string;
+}
+
 export default function TrainerCalendar() {
   const [searchParams, setSearchParams] = useSearchParams();
   const userParam = searchParams.get('userId') ?? '';
@@ -56,6 +61,8 @@ export default function TrainerCalendar() {
   const [filter, setFilter] = useState<'upcoming' | 'past' | 'all'>('upcoming');
   const [dayFilter, setDayFilter] = useState<DayFilter>('all');
   const [userFilter, setUserFilter] = useState(userParam);
+  const [gymFilter, setGymFilter] = useState('');
+  const [sedeFilter, setSedeFilter] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [registeringAttendance, setRegisteringAttendance] = useState<string | null>(null);
 
@@ -98,9 +105,46 @@ export default function TrainerCalendar() {
     return data.filter((b) => !!b.fecha_inicio_utc);
   }, [data]);
 
-  const clients = useMemo(() => {
+  const gyms = useMemo(() => {
     const map = new Map<string, string>();
     for (const b of allActive) {
+      const gym = b.sede?.gimnasio;
+      if (gym?.id && !map.has(gym.id)) map.set(gym.id, gym.nombre);
+    }
+    return Array.from(map.entries())
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [allActive]);
+
+  const sedes = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of allActive) {
+      const sede = b.sede;
+      if (!sede?.id) continue;
+      if (gymFilter && sede.gimnasio?.id !== gymFilter) continue;
+      const label = sede.ciudad ? `${sede.nombre} · ${sede.ciudad}` : sede.nombre;
+      if (!map.has(sede.id)) map.set(sede.id, label);
+    }
+    return Array.from(map.entries())
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [allActive, gymFilter]);
+
+  useEffect(() => {
+    if (sedeFilter && !sedes.some((s) => s.id === sedeFilter)) setSedeFilter('');
+  }, [sedeFilter, sedes]);
+
+  const scopedBookings = useMemo(() => {
+    return allActive.filter((b) => {
+      if (gymFilter && b.sede?.gimnasio?.id !== gymFilter) return false;
+      if (sedeFilter && b.sede?.id !== sedeFilter) return false;
+      return true;
+    });
+  }, [allActive, gymFilter, sedeFilter]);
+
+  const clients = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of scopedBookings) {
       if (b.cliente?.id) {
         const name = `${b.cliente.nombres ?? ''} ${b.cliente.apellidos ?? ''}`.trim();
         if (!map.has(b.cliente.id)) map.set(b.cliente.id, name || b.cliente.id);
@@ -109,23 +153,23 @@ export default function TrainerCalendar() {
     return Array.from(map.entries())
       .map(([id, nombre]) => ({ id, nombre }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
-  }, [allActive]);
+  }, [scopedBookings]);
 
   const calendarBookings = useMemo(() => {
-    if (!userFilter) return allActive;
-    return allActive.filter((b) => b.cliente?.id === userFilter);
-  }, [allActive, userFilter]);
+    if (!userFilter) return scopedBookings;
+    return scopedBookings.filter((b) => b.cliente?.id === userFilter);
+  }, [scopedBookings, userFilter]);
 
   const filtered = useMemo(() => {
     const now = Date.now();
-    return allActive.filter((b) => {
+    return scopedBookings.filter((b) => {
       const t = new Date(b.fecha_inicio_utc).getTime();
       if (filter === 'upcoming' && (t < now || FINAL_STATES.includes(String(b.estado)))) return false;
       if (filter === 'past' && t >= now && !FINAL_STATES.includes(String(b.estado))) return false;
       if (userFilter && b.cliente?.id !== userFilter) return false;
       return true;
     });
-  }, [allActive, filter, userFilter]);
+  }, [scopedBookings, filter, userFilter]);
 
   const grouped = useMemo(() => groupByPeriod(filtered, filter), [filtered, filter]);
   const selected = useMemo(
@@ -167,6 +211,17 @@ export default function TrainerCalendar() {
                 onChange={updateUserFilter}
                 clients={clients}
               />
+              <ScopeSelects
+                gymValue={gymFilter}
+                sedeValue={sedeFilter}
+                gyms={gyms}
+                sedes={sedes}
+                onGymChange={(id) => {
+                  setGymFilter(id);
+                  setSedeFilter('');
+                }}
+                onSedeChange={setSedeFilter}
+              />
             </div>
 
             <Card padding={14}>
@@ -175,7 +230,7 @@ export default function TrainerCalendar() {
               ) : error ? (
                 <p className="text-err-fg p-4">{error.message}</p>
               ) : calendarBookings.length === 0 ? (
-                <EmptyCalendar filtered={!!userFilter} />
+                <EmptyCalendar filtered={!!userFilter || !!gymFilter || !!sedeFilter} />
               ) : (
                 <CalendarView
                   bookings={calendarBookings}
@@ -208,6 +263,17 @@ export default function TrainerCalendar() {
                 onChange={updateUserFilter}
                 clients={clients}
               />
+              <ScopeSelects
+                gymValue={gymFilter}
+                sedeValue={sedeFilter}
+                gyms={gyms}
+                sedes={sedes}
+                onGymChange={(id) => {
+                  setGymFilter(id);
+                  setSedeFilter('');
+                }}
+                onSedeChange={setSedeFilter}
+              />
             </div>
 
             {loading && (
@@ -228,8 +294,8 @@ export default function TrainerCalendar() {
                 <div className="text-center">
                   <Icon name="cal" size={28} color="#6B746A" className="mx-auto mb-3" />
                   <p className="text-fg-2">
-                    {userFilter
-                      ? 'Sin sesiones para este cliente con el filtro actual.'
+                    {userFilter || gymFilter || sedeFilter
+                      ? 'Sin sesiones con el filtro actual.'
                       : filter === 'upcoming'
                       ? 'Sin sesiones próximas.'
                       : 'Sin sesiones aquí.'}
@@ -670,6 +736,57 @@ function ClientSelect({
           <option key={c.id} value={c.id}>{c.nombre}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function ScopeSelects({
+  gymValue,
+  sedeValue,
+  gyms,
+  sedes,
+  onGymChange,
+  onSedeChange,
+}: {
+  gymValue: string;
+  sedeValue: string;
+  gyms: ScopeOption[];
+  sedes: ScopeOption[];
+  onGymChange: (id: string) => void;
+  onSedeChange: (id: string) => void;
+}) {
+  if (gyms.length === 0 && sedes.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {gyms.length > 0 && (
+        <>
+          <Icon name="building" size={12} color="#6B746A" />
+          <select
+            value={gymValue}
+            onChange={(e) => onGymChange(e.target.value)}
+            className="h-8 px-2 rounded-lg bg-surface-2 border border-line-2 text-fg text-[12px] focus:outline-none focus:border-accent/60"
+            aria-label="Filtrar por gimnasio"
+          >
+            <option value="">Todos los gimnasios</option>
+            {gyms.map((g) => (
+              <option key={g.id} value={g.id}>{g.nombre}</option>
+            ))}
+          </select>
+        </>
+      )}
+      {sedes.length > 0 && (
+        <select
+          value={sedeValue}
+          onChange={(e) => onSedeChange(e.target.value)}
+          className="h-8 px-2 rounded-lg bg-surface-2 border border-line-2 text-fg text-[12px] focus:outline-none focus:border-accent/60"
+          aria-label="Filtrar por sede"
+        >
+          <option value="">Todas las sedes</option>
+          {sedes.map((s) => (
+            <option key={s.id} value={s.id}>{s.nombre}</option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }

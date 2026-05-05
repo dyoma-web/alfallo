@@ -20,7 +20,13 @@ export interface CalendarBooking {
   estado: string;
   cliente?: { id: string; nombres: string; apellidos: string; nick?: string } | null;
   entrenador?: { id: string; nombres: string; apellidos: string; nick?: string } | null;
-  sede?: { id: string; nombre: string; ciudad?: string } | null;
+  sede?: {
+    id: string;
+    nombre: string;
+    ciudad?: string;
+    gimnasio_id?: string;
+    gimnasio?: { id: string; nombre: string } | null;
+  } | null;
   userGroups?: UserGroup[];
 }
 
