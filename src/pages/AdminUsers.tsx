@@ -9,6 +9,7 @@ import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { UserFormModal } from '../components/admin/UserFormModal';
 import { TrainerProfileModal } from '../components/admin/TrainerProfileModal';
 import { DetailModal, type DetailSection } from '../components/DetailModal';
+import { Modal } from '../components/Modal';
 import { useConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 import { formatRelative, formatShortDate } from '../lib/datetime';
@@ -18,11 +19,30 @@ interface SedeRef {
   nombre: string;
   ciudad?: string;
   gimnasio_id?: string | null;
+  principal?: boolean;
 }
 
 interface GymRef {
   id: string;
   nombre: string;
+}
+
+interface SedeOption extends SedeRef {
+  barrio?: string;
+  estado?: string;
+  gimnasio?: GymRef | null;
+}
+
+interface UserSedeAssignment {
+  id: string;
+  sedeId: string;
+  principal: boolean;
+  sede: SedeOption | null;
+}
+
+interface UserSedesResponse {
+  userId: string;
+  assignments: UserSedeAssignment[];
 }
 
 interface UserListItem {
@@ -85,6 +105,7 @@ export default function AdminUsers() {
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [trainerProfileFor, setTrainerProfileFor] = useState<UserListItem | null>(null);
+  const [sedeManagerFor, setSedeManagerFor] = useState<UserListItem | null>(null);
   const [viewing, setViewing] = useState<UserListItem | null>(null);
 
   const suspend = useApiMutation('adminSuspendUser');
@@ -271,6 +292,7 @@ export default function AdminUsers() {
                 onReactivate={() => handleReactivate(u.id)}
                 onResend={() => handleResend(u.id)}
                 onTrainerProfile={u.rol === 'trainer' ? () => setTrainerProfileFor(u) : undefined}
+                onManageSedes={u.rol === 'client' ? () => setSedeManagerFor(u) : undefined}
                 busy={suspend.loading || reactivate.loading || resend.loading}
               />
             ))}
@@ -287,6 +309,7 @@ export default function AdminUsers() {
             onReactivate={handleReactivate}
             onResend={handleResend}
             onTrainerProfile={(u) => setTrainerProfileFor(u)}
+            onManageSedes={(u) => setSedeManagerFor(u)}
             busy={suspend.loading || reactivate.loading || resend.loading}
           />
         )}
@@ -321,6 +344,7 @@ export default function AdminUsers() {
         onClose={() => setViewing(null)}
         onEdit={() => { setEditingUser(viewing); setViewing(null); }}
         onTrainerProfile={() => { setTrainerProfileFor(viewing); setViewing(null); }}
+        onManageSedes={() => { setSedeManagerFor(viewing); setViewing(null); }}
         onSuspend={async () => {
           if (!viewing) return;
           await handleSuspend(viewing.id);
@@ -339,6 +363,15 @@ export default function AdminUsers() {
         busy={suspend.loading || reactivate.loading || resend.loading}
       />
 
+      <UserSedesModal
+        user={sedeManagerFor}
+        onClose={() => setSedeManagerFor(null)}
+        onSaved={() => {
+          setSedeManagerFor(null);
+          void refetch();
+        }}
+      />
+
       {resentLink && (
         <ResendLinkModal link={resentLink} onClose={() => setResentLink(null)} />
       )}
@@ -353,6 +386,7 @@ function UserDetailModal({
   onClose,
   onEdit,
   onTrainerProfile,
+  onManageSedes,
   onSuspend,
   onReactivate,
   onResend,
@@ -362,6 +396,7 @@ function UserDetailModal({
   onClose: () => void;
   onEdit: () => void;
   onTrainerProfile: () => void;
+  onManageSedes: () => void;
   onSuspend: () => void;
   onReactivate: () => void;
   onResend: () => void;
@@ -440,6 +475,7 @@ function UserDetailModal({
               >
                 {s.nombre}
                 {s.ciudad ? ` · ${s.ciudad}` : ''}
+                {s.principal ? ' · Base' : ''}
               </span>
             ))}
           </div>
@@ -495,6 +531,11 @@ function UserDetailModal({
               Perfil profesional
             </Btn>
           )}
+          {user.rol === 'client' && (
+            <Btn variant="outline" onClick={onManageSedes} disabled={busy}>
+              Sedes
+            </Btn>
+          )}
           {isPending && (
             <Btn variant="outline" onClick={onResend} disabled={busy}>
               Reenviar invitación
@@ -530,6 +571,7 @@ function GroupedUsers({
   onReactivate,
   onResend,
   onTrainerProfile,
+  onManageSedes,
   busy,
 }: {
   users: UserListItem[];
@@ -540,6 +582,7 @@ function GroupedUsers({
   onReactivate: (id: string) => void;
   onResend: (id: string) => void;
   onTrainerProfile: (u: UserListItem) => void;
+  onManageSedes: (u: UserListItem) => void;
   busy: boolean;
 }) {
   const groups = useMemo(() => {
@@ -612,6 +655,7 @@ function GroupedUsers({
                 onReactivate={() => onReactivate(u.id)}
                 onResend={() => onResend(u.id)}
                 onTrainerProfile={u.rol === 'trainer' ? () => onTrainerProfile(u) : undefined}
+                onManageSedes={u.rol === 'client' ? () => onManageSedes(u) : undefined}
                 busy={busy}
               />
             ))}
@@ -630,6 +674,7 @@ function UserRow({
   onReactivate,
   onResend,
   onTrainerProfile,
+  onManageSedes,
   busy,
 }: {
   user: UserListItem;
@@ -639,6 +684,7 @@ function UserRow({
   onReactivate: () => void;
   onResend: () => void;
   onTrainerProfile?: () => void;
+  onManageSedes?: () => void;
   busy: boolean;
 }) {
   const initials =
@@ -700,6 +746,7 @@ function UserRow({
                       className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-fg-2 border border-line"
                     >
                       {s.nombre}
+                      {s.principal ? ' · Base' : ''}
                     </span>
                   ))}
                   {((user.gimnasios?.length ?? 0) + (user.sedes?.length ?? 0)) > 4 && (
@@ -737,6 +784,11 @@ function UserRow({
               Perfil profesional
             </Btn>
           )}
+          {user.rol === 'client' && onManageSedes && (
+            <Btn variant="outline" size="sm" onClick={onManageSedes} disabled={busy}>
+              Sedes
+            </Btn>
+          )}
           {isSuspended ? (
             <Btn variant="outline" size="sm" onClick={onReactivate} disabled={busy}>
               Reactivar
@@ -749,6 +801,164 @@ function UserRow({
         </div>
       </Card>
     </li>
+  );
+}
+
+function UserSedesModal({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: UserListItem | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const setSedes = useApiMutation<UserSedesResponse>('adminSetUserSedes');
+  const { data: sedes, loading: loadingSedes, error: sedesError } = useApiQuery<SedeOption[]>(
+    'adminListSedes',
+    {},
+    { enabled: !!user }
+  );
+  const { data: assignments, loading: loadingAssignments, error: assignmentsError } = useApiQuery<UserSedesResponse>(
+    'adminGetUserSedes',
+    { userId: user?.id ?? '' },
+    { enabled: !!user, deps: [user?.id] }
+  );
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [baseSedeId, setBaseSedeId] = useState<string>('');
+
+  useEffect(() => {
+    if (!user || !assignments) return;
+    const ids = assignments.assignments.map((a) => a.sedeId);
+    const base = assignments.assignments.find((a) => a.principal)?.sedeId ?? ids[0] ?? '';
+    setSelectedIds(ids);
+    setBaseSedeId(base);
+  }, [assignments, user]);
+
+  if (!user) return null;
+
+  const currentUser = user;
+  const activeSedes = (sedes ?? []).filter((s) => !s.estado || s.estado === 'active');
+  const selectedSet = new Set(selectedIds);
+  const busy = loadingSedes || loadingAssignments || setSedes.loading;
+  const error = sedesError ?? assignmentsError ?? setSedes.error;
+
+  function toggleSede(sedeId: string) {
+    setSelectedIds((current) => {
+      if (current.includes(sedeId)) {
+        const next = current.filter((id) => id !== sedeId);
+        if (baseSedeId === sedeId) setBaseSedeId(next[0] ?? '');
+        return next;
+      }
+      if (!baseSedeId) setBaseSedeId(sedeId);
+      return [...current, sedeId];
+    });
+  }
+
+  async function handleSave() {
+    const base = selectedIds.includes(baseSedeId) ? baseSedeId : selectedIds[0] ?? '';
+    try {
+      await setSedes.mutate({
+        userId: currentUser.id,
+        assignments: selectedIds.map((sedeId) => ({
+          sedeId,
+          principal: sedeId === base,
+        })),
+      });
+      toast({ title: 'Sedes actualizadas', tone: 'success' });
+      onSaved();
+    } catch (e) {
+      toast({
+        title: 'No se pudieron guardar las sedes',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Sedes del cliente"
+      size="lg"
+    >
+      <div className="px-5 py-5 space-y-4">
+        <div className="text-[12px] text-fg-3">
+          {`${user.nombres} ${user.apellidos}`.trim()}
+        </div>
+        {busy && activeSedes.length === 0 && (
+          <div className="h-32 rounded-xl border border-line bg-surface-2 animate-pulse" />
+        )}
+
+        {error && (
+          <div role="alert" className="text-err-fg text-[13px]">
+            {error.message}
+          </div>
+        )}
+
+        {!loadingSedes && activeSedes.length === 0 && (
+          <p className="text-fg-3 text-[13px]">No hay sedes activas para asignar.</p>
+        )}
+
+        {activeSedes.length > 0 && (
+          <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+            {activeSedes.map((sede) => {
+              const selected = selectedSet.has(sede.id);
+              return (
+                <div
+                  key={sede.id}
+                  className="rounded-xl border border-line bg-surface-2 p-3 flex items-start gap-3"
+                >
+                  <label className="flex items-start gap-3 flex-1 cursor-pointer min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleSede(sede.id)}
+                      className="mt-1 w-4 h-4 accent-accent flex-none cursor-pointer"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{sede.nombre}</span>
+                      <span className="block text-[12px] text-fg-3">
+                        {[sede.gimnasio?.nombre, sede.barrio, sede.ciudad].filter(Boolean).join(' · ') || 'Sin ubicacion detallada'}
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[12px] text-fg-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="baseSede"
+                      checked={selected && baseSedeId === sede.id}
+                      disabled={!selected}
+                      onChange={() => setBaseSedeId(sede.id)}
+                      className="w-4 h-4 accent-accent disabled:opacity-40"
+                    />
+                    Base
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 flex-wrap border-t border-line pt-4">
+          <div className="text-[12px] text-fg-3">
+            {selectedIds.length === 0
+              ? 'Sin sedes asignadas'
+              : `${selectedIds.length} sede${selectedIds.length === 1 ? '' : 's'} seleccionada${selectedIds.length === 1 ? '' : 's'}`}
+          </div>
+          <div className="flex gap-2">
+            <Btn variant="secondary" onClick={onClose} disabled={setSedes.loading}>
+              Cancelar
+            </Btn>
+            <Btn onClick={handleSave} disabled={setSedes.loading || loadingSedes || loadingAssignments}>
+              {setSedes.loading ? 'Guardando...' : 'Guardar sedes'}
+            </Btn>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

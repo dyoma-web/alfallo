@@ -183,6 +183,12 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'adminUpdateUser':
       return adminUpdateUser(payload, ctx);
 
+    case 'adminGetUserSedes':
+      return adminGetUserSedes(payload, ctx);
+
+    case 'adminSetUserSedes':
+      return adminSetUserSedes(payload, ctx);
+
     case 'adminSuspendUser':
       return adminSuspendUser(payload, ctx);
 

@@ -154,18 +154,24 @@ function adminListUsers(payload, ctx) {
     const hasTrainerProfile = !!trainerProfile;
 
     // Sedes a las que pertenece (clientes vía sedes_usuarios; trainers vía sedes_entrenadores)
-    let sedesIds = [];
+    let sedesEnriched = [];
     if (u.rol === 'client') {
-      sedesIds = allSedeUsuarios
+      sedesEnriched = allSedeUsuarios
         .filter(function (su) { return su.user_id === u.id; })
-        .map(function (su) { return su.sede_id; });
+        .map(function (su) {
+          const sede = lookupSede(su.sede_id);
+          return sede ? Object.assign({}, sede, {
+            principal: su.principal === true || su.principal === 'TRUE',
+          }) : null;
+        })
+        .filter(Boolean);
     } else if (u.rol === 'trainer') {
-      sedesIds = allSedeTrainers
+      const sedesIds = allSedeTrainers
         .filter(function (st) { return st.entrenador_id === u.id; })
         .map(function (st) { return st.sede_id; });
+      sedesEnriched = sedesIds.map(lookupSede).filter(Boolean);
     }
 
-    const sedesEnriched = sedesIds.map(lookupSede).filter(Boolean);
     // Set de gimnasios derivados de las sedes
     const gymIds = {};
     sedesEnriched.forEach(function (s) {
@@ -325,6 +331,123 @@ function adminUpdateUser(payload, ctx) {
     JSON.stringify(user), JSON.stringify(updated), ctx.reqMeta);
 
   return { user: updated };
+}
+
+function adminGetUserSedes(payload, ctx) {
+  admin_requireAdmin_(ctx);
+  const userId = vUuid(vRequired(payload.userId, 'userId'), 'userId');
+  const user = dbFindById('usuarios', userId);
+  if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
+  if (user.rol !== 'client') {
+    throw _err('NOT_CLIENT', 'Solo se administran sedes de clientes en este flujo');
+  }
+
+  const assignments = dbListAll('sedes_usuarios', function (su) {
+    return su.user_id === userId;
+  });
+  return {
+    userId: userId,
+    assignments: assignments.map(function (su) {
+      const sede = su.sede_id ? dbFindById('sedes', su.sede_id) : null;
+      const gym = sede && sede.gimnasio_id ? dbFindById('gimnasios', sede.gimnasio_id) : null;
+      return {
+        id: su.id,
+        sedeId: su.sede_id,
+        principal: su.principal === true || su.principal === 'TRUE',
+        createdAt: su.created_at,
+        sede: sede ? {
+          id: sede.id,
+          nombre: sede.nombre,
+          ciudad: sede.ciudad,
+          barrio: sede.barrio,
+          gimnasio: gym ? { id: gym.id, nombre: gym.nombre } : null,
+        } : null,
+      };
+    }),
+  };
+}
+
+function adminSetUserSedes(payload, ctx) {
+  admin_requireAdmin_(ctx);
+  const userId = vUuid(vRequired(payload.userId, 'userId'), 'userId');
+  const user = dbFindById('usuarios', userId);
+  if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
+  if (user.rol !== 'client') {
+    throw _err('NOT_CLIENT', 'Solo se administran sedes de clientes en este flujo');
+  }
+
+  const rawAssignments = Array.isArray(payload.assignments) ? payload.assignments : [];
+  const bySede = {};
+  const orderedSedeIds = [];
+  for (let i = 0; i < rawAssignments.length; i++) {
+    const sedeId = vUuid(vRequired(rawAssignments[i].sedeId, 'sedeId'), 'sedeId');
+    const sede = dbFindById('sedes', sedeId);
+    if (!sede) throw _err('SEDE_NOT_FOUND', 'Sede no encontrada');
+    if (!bySede[sedeId]) orderedSedeIds.push(sedeId);
+    bySede[sedeId] = {
+      sedeId: sedeId,
+      principal: rawAssignments[i].principal === true || rawAssignments[i].principal === 'TRUE',
+    };
+  }
+
+  let hasPrincipal = false;
+  for (let j = 0; j < orderedSedeIds.length; j++) {
+    if (bySede[orderedSedeIds[j]].principal) {
+      if (!hasPrincipal) {
+        hasPrincipal = true;
+      } else {
+        bySede[orderedSedeIds[j]].principal = false;
+      }
+    }
+  }
+  if (!hasPrincipal && orderedSedeIds.length > 0) {
+    bySede[orderedSedeIds[0]].principal = true;
+  }
+
+  const existing = dbListAll('sedes_usuarios', function (su) {
+    return su.user_id === userId;
+  });
+  const existingBySede = {};
+  for (let k = 0; k < existing.length; k++) {
+    existingBySede[existing[k].sede_id] = existing[k];
+  }
+
+  const now = dbNowUtc();
+  const keptIds = {};
+  for (let a = 0; a < orderedSedeIds.length; a++) {
+    const desired = bySede[orderedSedeIds[a]];
+    const found = existingBySede[desired.sedeId];
+    if (found) {
+      dbUpdateById('sedes_usuarios', found.id, {
+        principal: desired.principal,
+      });
+      keptIds[found.id] = true;
+    } else {
+      const created = dbInsert('sedes_usuarios', {
+        id: cryptoUuid(),
+        sede_id: desired.sedeId,
+        user_id: userId,
+        principal: desired.principal,
+        created_at: now,
+      });
+      keptIds[created.id] = true;
+    }
+  }
+
+  const sheet = db_getSheet_('sedes_usuarios');
+  const headers = db_getHeaders_(sheet);
+  const idCol = headers.indexOf('id') + 1;
+  for (let r = sheet.getLastRow(); r >= 2; r--) {
+    const id = sheet.getRange(r, idCol).getValue();
+    const row = existing.find(function (su) { return su.id === id; });
+    if (row && !keptIds[id]) {
+      sheet.deleteRow(r);
+    }
+  }
+
+  auditOk(ctx.userId, 'set_user_sedes', 'sedes_usuarios', userId,
+    JSON.stringify(existing), JSON.stringify(orderedSedeIds.map(function (id) { return bySede[id]; })), ctx.reqMeta);
+  return adminGetUserSedes({ userId: userId }, ctx);
 }
 
 function adminSuspendUser(payload, ctx) {
