@@ -5,7 +5,8 @@ import { Btn } from '../components/Btn';
 import { Icon } from '../components/Icon';
 import { CalendarView, type CalendarBooking, type UnavailabilityEvent as UnavailabilityEvt } from '../components/calendar/CalendarView';
 import { useApiQuery } from '../lib/useApiQuery';
-import { SedeBlockFormModal } from '../components/admin/SedeBlockFormModal';
+import { SedeBlockFormModal, type SedeBlock } from '../components/admin/SedeBlockFormModal';
+import { formatDate, formatTime } from '../lib/datetime';
 
 interface BookingFromApi extends CalendarBooking {
   user_id: string;
@@ -27,6 +28,7 @@ export default function AdminCalendar() {
   const [filterSedeId, setFilterSedeId] = useState('');
   const [filterUserId, setFilterUserId] = useState('');
   const [showSedeBlock, setShowSedeBlock] = useState(false);
+  const [editingSedeBlock, setEditingSedeBlock] = useState<SedeBlock | null>(null);
 
   const { data, error, loading } = useApiQuery<BookingFromApi[]>(
     'listMyBookings',
@@ -169,37 +171,98 @@ export default function AdminCalendar() {
         )}
 
         {!loading && (
-          <Card padding={14}>
-            {bookings.length === 0 && calendarBlocks.length === 0 ? (
-              <div className="text-center py-16">
-                <Icon name="cal" size={32} color="#6B746A" className="mx-auto mb-3" />
-                <p className="text-fg-2">No hay agendamientos en el rango.</p>
-              </div>
-            ) : (
-              <CalendarView
-                bookings={bookings}
-                unavailability={calendarBlocks}
-                showTrainerInUnavailability
-                defaultView="timeGridWeek"
-                showLabel={labelMode}
-                height={700}
-              />
-            )}
-          </Card>
+          <>
+            <Card padding={14}>
+              {bookings.length === 0 && calendarBlocks.length === 0 ? (
+                <div className="text-center py-16">
+                  <Icon name="cal" size={32} color="#6B746A" className="mx-auto mb-3" />
+                  <p className="text-fg-2">No hay agendamientos en el rango.</p>
+                </div>
+              ) : (
+                <CalendarView
+                  bookings={bookings}
+                  unavailability={calendarBlocks}
+                  showTrainerInUnavailability
+                  defaultView="timeGridWeek"
+                  showLabel={labelMode}
+                  height={700}
+                />
+              )}
+            </Card>
+
+            <SedeBlocksPanel
+              blocks={(sedeBlocks ?? []) as SedeBlock[]}
+              onEdit={(block) => {
+                setEditingSedeBlock(block);
+                setShowSedeBlock(true);
+              }}
+            />
+          </>
         )}
 
         <SedeBlockFormModal
           open={showSedeBlock}
           sedes={sedes ?? []}
           initialSedeId={filterSedeId}
-          onClose={() => setShowSedeBlock(false)}
+          initialBlock={editingSedeBlock}
+          onClose={() => {
+            setShowSedeBlock(false);
+            setEditingSedeBlock(null);
+          }}
           onSaved={() => {
             setShowSedeBlock(false);
+            setEditingSedeBlock(null);
             void refetchSedeBlocks();
           }}
         />
       </div>
     </AppShell>
+  );
+}
+
+function SedeBlocksPanel({
+  blocks,
+  onEdit,
+}: {
+  blocks: SedeBlock[];
+  onEdit: (block: SedeBlock) => void;
+}) {
+  if (blocks.length === 0) return null;
+
+  const sorted = [...blocks].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+  return (
+    <section className="mt-4">
+      <div className="flex items-baseline justify-between mb-2 px-1">
+        <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3">
+          Bloqueos de sede
+        </h2>
+        <span className="text-[11px] text-fg-3">{blocks.length}</span>
+      </div>
+      <Card padding={0}>
+        <ul className="divide-y divide-line">
+          {sorted.map((b) => (
+            <li key={`${b.ruleId}-${b.start}`} className="p-3 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-err/10 border border-err/20 flex items-center justify-center flex-none">
+                <Icon name="mapPin" size={15} color="#FF8E8E" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-sm">{b.sedeName || b.titulo}</div>
+                <div className="text-[12px] text-fg-2 mt-0.5">
+                  {formatDate(b.start)} · {formatTime(b.start)}-{formatTime(b.end)}
+                </div>
+                {b.descripcion && (
+                  <p className="text-[12px] text-fg-3 mt-0.5">{b.descripcion}</p>
+                )}
+              </div>
+              <Btn variant="secondary" size="sm" onClick={() => onEdit(b)}>
+                Editar
+              </Btn>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </section>
   );
 }
 

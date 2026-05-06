@@ -273,6 +273,12 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'createSedeBlock':
       return sedeBlocksCreate(payload, ctx);
 
+    case 'updateSedeBlock':
+      return sedeBlocksUpdate(payload, ctx);
+
+    case 'deleteSedeBlock':
+      return sedeBlocksDelete(payload, ctx);
+
     case 'expandSedeBlocks':
       return sedeBlocksExpanded(payload, ctx);
 

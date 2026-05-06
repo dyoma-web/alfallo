@@ -311,6 +311,66 @@ function sedeBlocksCreate(payload, ctx) {
   return { block: block };
 }
 
+function sedeBlocksUpdate(payload, ctx) {
+  if (ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo admin puede editar bloqueos de sede');
+  }
+
+  const id = vUuid(vRequired(payload.id, 'id'), 'id');
+  const before = dbFindById('sedes_bloqueos', id);
+  if (!before) throw _err('NOT_FOUND', 'Bloqueo no encontrado');
+
+  const patch = {};
+  if ('sedeId' in payload) {
+    const sedeId = vUuid(vRequired(payload.sedeId, 'sedeId'), 'sedeId');
+    const sede = dbFindById('sedes', sedeId);
+    if (!sede) throw _err('NOT_FOUND', 'Sede no encontrada');
+    patch.sede_id = sedeId;
+  }
+  if ('desdeUtc' in payload) patch.desde_utc = vIsoDate(payload.desdeUtc, 'desdeUtc');
+  if ('hastaUtc' in payload) patch.hasta_utc = vIsoDate(payload.hastaUtc, 'hastaUtc');
+  if ('motivo' in payload) patch.motivo = vString(payload.motivo || 'Sede bloqueada', 'motivo', { max: 300 });
+
+  const nextDesde = patch.desde_utc || before.desde_utc;
+  const nextHasta = patch.hasta_utc || before.hasta_utc;
+  if (new Date(nextHasta) <= new Date(nextDesde)) {
+    throw _err('VALIDATION', 'La fecha fin debe ser posterior al inicio');
+  }
+
+  const updated = dbUpdateById('sedes_bloqueos', id, patch);
+  auditOk(ctx.userId, 'update_sede_block', 'sedes_bloqueos', id,
+    JSON.stringify(before), JSON.stringify(updated), ctx.reqMeta);
+  return { block: updated };
+}
+
+function sedeBlocksDelete(payload, ctx) {
+  if (ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _err('FORBIDDEN', 'Solo admin puede eliminar bloqueos de sede');
+  }
+
+  const id = vUuid(vRequired(payload.id, 'id'), 'id');
+  const block = dbFindById('sedes_bloqueos', id);
+  if (!block) throw _err('NOT_FOUND', 'Bloqueo no encontrado');
+
+  const sheet = db_getSheet_('sedes_bloqueos');
+  const headers = db_getHeaders_(sheet);
+  const pkIdx = headers.indexOf('id');
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    const data = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][pkIdx]) === String(id)) {
+        sheet.deleteRow(i + 2);
+        break;
+      }
+    }
+  }
+
+  auditOk(ctx.userId, 'delete_sede_block', 'sedes_bloqueos', id,
+    JSON.stringify(block), '', ctx.reqMeta);
+  return { ok: true };
+}
+
 function sedeBlocksExpanded(payload, ctx) {
   const isAdmin = ctx.role === 'admin' || ctx.role === 'super_admin';
   const isTrainer = ctx.role === 'trainer';

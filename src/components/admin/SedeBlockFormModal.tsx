@@ -3,6 +3,8 @@ import { useForm } from 'react-hook-form';
 import { Modal } from '../Modal';
 import { Field } from '../Field';
 import { Btn } from '../Btn';
+import { useConfirmDialog } from '../ConfirmDialog';
+import { useToast } from '../Toast';
 import { useApiMutation } from '../../lib/useApiQuery';
 
 interface SedeOption {
@@ -19,10 +21,21 @@ interface FormData {
   horaFin: string;
 }
 
+export interface SedeBlock {
+  ruleId: string;
+  titulo: string;
+  entityId: string;
+  sedeName?: string;
+  descripcion?: string;
+  start: string;
+  end: string;
+}
+
 interface Props {
   open: boolean;
   sedes: SedeOption[];
   initialSedeId?: string;
+  initialBlock?: SedeBlock | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -34,10 +47,16 @@ export function SedeBlockFormModal({
   open,
   sedes,
   initialSedeId,
+  initialBlock,
   onClose,
   onSaved,
 }: Props) {
+  const isEdit = !!initialBlock;
   const create = useApiMutation('createSedeBlock');
+  const update = useApiMutation('updateSedeBlock');
+  const remove = useApiMutation('deleteSedeBlock');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const toast = useToast();
   const {
     register,
     handleSubmit,
@@ -55,16 +74,20 @@ export function SedeBlockFormModal({
 
   useEffect(() => {
     if (!open) return;
+    const start = initialBlock ? new Date(initialBlock.start) : new Date();
+    const end = initialBlock ? new Date(initialBlock.end) : null;
     reset({
-      sedeId: initialSedeId || '',
-      motivo: '',
-      fecha: dateStr(new Date()),
-      horaInicio: '09:00',
-      horaFin: '12:00',
+      sedeId: initialBlock?.entityId || initialSedeId || '',
+      motivo: initialBlock?.descripcion || '',
+      fecha: dateStr(start),
+      horaInicio: initialBlock ? timeStr(start) : '09:00',
+      horaFin: end ? timeStr(end) : '12:00',
     });
     create.reset();
+    update.reset();
+    remove.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialSedeId]);
+  }, [open, initialSedeId, initialBlock]);
 
   async function onSubmit(values: FormData) {
     const desdeUtc = new Date(`${values.fecha}T${values.horaInicio}:00`).toISOString();
@@ -72,22 +95,51 @@ export function SedeBlockFormModal({
     if (new Date(hastaUtc) <= new Date(desdeUtc)) return;
 
     try {
-      await create.mutate({
+      const payload = {
         sedeId: values.sedeId,
         motivo: values.motivo || 'Sede bloqueada',
         desdeUtc,
         hastaUtc,
-      });
+      };
+      if (isEdit && initialBlock) {
+        await update.mutate({ id: initialBlock.ruleId, ...payload });
+      } else {
+        await create.mutate(payload);
+      }
       onSaved();
     } catch {
       /* error en hook */
     }
   }
 
+  async function onDelete() {
+    if (!initialBlock) return;
+    const ok = await confirm({
+      title: 'Eliminar bloqueo',
+      message: 'La sede volverá a estar disponible en esa franja. Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await remove.mutate({ id: initialBlock.ruleId });
+      toast({ title: 'Bloqueo eliminado', tone: 'success' });
+      onSaved();
+    } catch (e) {
+      toast({
+        title: 'No se pudo eliminar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
+  }
+
   if (!open) return null;
+  const error = create.error || update.error || remove.error;
+  const loading = create.loading || update.loading || remove.loading;
 
   return (
-    <Modal open onClose={onClose} title="Bloquear sede" size="lg">
+    <Modal open onClose={onClose} title={isEdit ? 'Editar bloqueo de sede' : 'Bloquear sede'} size="lg">
       <form onSubmit={handleSubmit(onSubmit)} className="px-5 py-5 space-y-4">
         <div>
           <label htmlFor="sedeId" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
@@ -141,19 +193,29 @@ export function SedeBlockFormModal({
           />
         </div>
 
-        {create.error && (
-          <div role="alert" className="text-err-fg text-[13px]">{create.error.message}</div>
+        {error && (
+          <div role="alert" className="text-err-fg text-[13px]">{error.message}</div>
         )}
 
         <div className="flex gap-2 pt-2">
-          <Btn variant="secondary" full onClick={onClose} disabled={create.loading}>
+          {isEdit && (
+            <Btn variant="danger" onClick={onDelete} disabled={loading}>
+              Eliminar
+            </Btn>
+          )}
+          <Btn variant="secondary" full onClick={onClose} disabled={loading}>
             Cancelar
           </Btn>
-          <Btn type="submit" full disabled={create.loading}>
-            {create.loading ? 'Guardando...' : 'Bloquear sede'}
+          <Btn type="submit" full disabled={loading}>
+            {loading ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Bloquear sede'}
           </Btn>
         </div>
       </form>
+      {confirmDialog}
     </Modal>
   );
+}
+
+function timeStr(d: Date) {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
