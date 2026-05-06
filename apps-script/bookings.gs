@@ -216,9 +216,6 @@ function bookingsSubmit(payload, ctx) {
 }
 
 function bookingsCreateForClientByTrainer(payload, ctx) {
-  Logger.log('[trainerCreate] BUILD=2026-05-06b · payload=' + JSON.stringify(payload));
-  Logger.log('[trainerCreate] ctx.role=' + ctx.role + ' ctx.userId=' + ctx.userId);
-
   if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
     throw _bookingErr_('FORBIDDEN', 'Solo profesionales y admin pueden agendar afiliados');
   }
@@ -235,27 +232,20 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
     ? vNumber(payload.duracionMin, 'duracionMin', { min: 15, max: 240, int: true })
     : 60;
   const notas = payload.notas ? vString(payload.notas, 'notas', { max: 500 }) : '';
-  Logger.log('[trainerCreate] step1 args OK trainerId=' + trainerId + ' userId=' + userId
-    + ' fechaInicio=' + fechaInicio + ' tipo=' + tipo + ' sedeId=' + sedeId + ' duracionMin=' + duracionMin);
 
   const user = dbFindById('usuarios', userId);
   if (!user || user.rol !== 'client' || user.estado !== 'active') {
-    Logger.log('[trainerCreate] step2 FAIL user inválido user=' + JSON.stringify(user));
     throw _bookingErr_('USER_NOT_AVAILABLE', 'El afiliado no esta activo');
   }
-  Logger.log('[trainerCreate] step2 user OK rol=' + user.rol + ' estado=' + user.estado);
 
   const trainer = dbFindById('usuarios', trainerId);
   if (!trainer || trainer.rol !== 'trainer' || trainer.estado !== 'active') {
-    Logger.log('[trainerCreate] step3 FAIL trainer inválido');
     throw _bookingErr_('TRAINER_NOT_AVAILABLE', 'El profesional no esta disponible');
   }
-  Logger.log('[trainerCreate] step3 trainer OK');
 
   if (ctx.role === 'trainer') {
     const accessMap = trainer_getAccessibleClientMap_(trainerId);
     const access = accessMap[userId];
-    Logger.log('[trainerCreate] step4 access=' + JSON.stringify(access));
     if (!access) {
       throw _bookingErr_('FORBIDDEN', 'Este afiliado no esta asignado a tu perfil');
     }
@@ -273,8 +263,6 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
 
   try {
     const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
-    Logger.log('[trainerCreate] step5 trainerProfile.franja_trabajo='
-      + JSON.stringify(trainerProfile ? trainerProfile.franja_trabajo : null));
     // Nota: NO se valida franja_trabajo cuando el trainer/admin agenda
     // directamente. Esa franja restringe lo que el CLIENTE puede solicitar
     // por sí mismo (ver bookingsSubmit), pero el profesional es dueño de
@@ -315,8 +303,6 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
 
     const cap = bookings_getCap_(planCatalogo, tipo);
     const stricts = bookings_getCapStrict_(planCatalogo, tipo);
-    Logger.log('[trainerCreate] step6 cap=' + cap + ' stricts=' + stricts
-      + ' sameSlotBookings=' + sameSlotBookings.length);
     if (sameSlotBookings.length >= cap && (tipo === 'personalizado' || stricts)) {
       throw _bookingErr_('SLOT_FULL', tipo === 'personalizado'
         ? 'Ese horario ya no esta disponible'
@@ -324,19 +310,16 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
     }
 
     const unavailRule = availability_checkConflict_(trainerId, fechaInicio, duracionMin);
-    Logger.log('[trainerCreate] step7 unavailRule=' + (unavailRule ? unavailRule.titulo : 'null'));
     if (unavailRule) {
       throw _bookingErr_('TRAINER_UNAVAILABLE',
         'El profesional marco esa franja como no-disponible: "' + unavailRule.titulo + '"');
     }
 
     const sedeBlock = sedeBlocks_checkConflict_(sedeId, fechaInicio, duracionMin);
-    Logger.log('[trainerCreate] step8 sedeBlock=' + (sedeBlock ? sedeBlock.motivo : 'null'));
     if (sedeBlock) {
       throw _bookingErr_('SEDE_BLOCKED',
         'La sede esta bloqueada en esa franja: "' + sedeBlock.motivo + '"');
     }
-    Logger.log('[trainerCreate] step9 todo OK, creando booking');
 
     const now = dbNowUtc();
     const id = cryptoUuid();
@@ -610,18 +593,19 @@ function bookingsCancel(payload, ctx) {
     return { booking: { id: bookingId, estado: 'expirado' } };
   }
 
-  // Calcular si está dentro o fuera del margen de la política aplicable
-  const policy = bookings_getApplicablePolicy_(booking);
-  const ventanaHoras = policy ? Number(policy.ventana_horas) : 12;
+  // Política aplicable: la de menor ventana_horas que el cliente NO cumple
+  // (escalonamiento). Si las cumple todas, policy=null y no hay mensaje.
   const horasParaInicio = (new Date(booking.fecha_inicio_utc).getTime() - Date.now()) / 3600000;
-  const dentroMargen = horasParaInicio >= ventanaHoras;
+  const policy = bookings_getApplicablePolicy_(booking, horasParaInicio);
+  const ventanaHoras = policy ? Number(policy.ventana_horas) : null;
+  const dentroMargen = !policy;  // sin política aplicable = cumplió todos los márgenes
 
   if (booking.user_id === ctx.userId
-      && !dentroMargen
       && policy
       && (policy.bloquear_fuera_margen === true || policy.bloquear_fuera_margen === 'TRUE')) {
     throw _bookingErr_('CANCEL_BLOCKED',
-      policy.mensaje_bloqueo || 'Ya no es posible cancelar por la cercania de la sesion.');
+      bookings_getCancellationMessage_(policy)
+        || 'Ya no es posible cancelar por la cercania de la sesion.');
   }
 
   const now = dbNowUtc();
@@ -641,7 +625,7 @@ function bookingsCancel(payload, ctx) {
   return {
     booking: updated,
     dentroMargen: dentroMargen,
-    mensaje: bookings_getCancellationMessage_(policy, dentroMargen),
+    mensaje: bookings_getCancellationMessage_(policy),
     politicaAplicada: policy ? {
       nombre: policy.nombre,
       ventanaHoras: ventanaHoras,
@@ -1008,25 +992,29 @@ function bookingsSaveMyCancellationPolicy(payload, ctx) {
   const id = payload.id ? vUuid(payload.id, 'id') : '';
   const ventanaHoras = vNumber(payload.ventanaHoras || payload.ventana_horas || 12,
     'ventanaHoras', { min: 0, max: 168, int: true });
+  const mensaje = vString(vRequired(payload.mensaje, 'mensaje'), 'mensaje', { min: 5, max: 500 });
+
+  // Validar duplicado de ventana_horas para el mismo trainer
+  const dup = dbListAll('politicas_cancelacion', function (p) {
+    if (p.aplica_a !== 'trainer' || p.entidad_id !== trainerId) return false;
+    if (p.estado === 'archived') return false;
+    if (id && p.id === id) return false;
+    return Number(p.ventana_horas) === ventanaHoras;
+  });
+  if (dup.length > 0) {
+    throw _bookingErr_('POLICY_DUPLICATE',
+      'Ya tienes una política con ' + ventanaHoras + ' horas. Usa otra cantidad.');
+  }
+
   const now = dbNowUtc();
   const patch = {
-    nombre: vString(payload.nombre || 'Politica personalizada', 'nombre', { min: 2, max: 80 }),
+    nombre: vString(payload.nombre || ('Politica ' + ventanaHoras + 'h'),
+      'nombre', { min: 2, max: 80 }),
     ventana_horas: ventanaHoras,
     dentro_margen: 'sin_penalizacion',
     fuera_margen: payload.bloquearFueraMargen ? 'bloquea_cancelacion' : 'descuenta_sesion',
     bloquear_fuera_margen: !!payload.bloquearFueraMargen,
-    mensaje_dentro_margen: payload.mensajeDentroMargen
-      ? vString(payload.mensajeDentroMargen, 'mensajeDentroMargen', { max: 500 })
-      : '',
-    mensaje_fuera_margen: payload.mensajeFueraMargen
-      ? vString(payload.mensajeFueraMargen, 'mensajeFueraMargen', { max: 500 })
-      : '',
-    mensaje_bloqueo: payload.mensajeBloqueo
-      ? vString(payload.mensajeBloqueo, 'mensajeBloqueo', { max: 500 })
-      : '',
-    mensaje_cumplimiento: payload.mensajeCumplimiento
-      ? vString(payload.mensajeCumplimiento, 'mensajeCumplimiento', { max: 500 })
-      : '',
+    mensaje: mensaje,
     aplica_a: 'trainer',
     entidad_id: trainerId,
     estado: payload.estado === 'inactive' ? 'inactive' : 'active',
@@ -1053,43 +1041,94 @@ function bookingsSaveMyCancellationPolicy(payload, ctx) {
   return { policy: policy };
 }
 
-function bookings_getApplicablePolicy_(booking) {
-  // Prioridad: política del entrenador > sede > global
+function bookingsDeleteMyCancellationPolicy(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _bookingErr_('FORBIDDEN', 'Solo profesionales y admin');
+  }
+  const id = vUuid(vRequired(payload.id, 'id'), 'id');
+  const current = dbFindById('politicas_cancelacion', id);
+  if (!current) throw _bookingErr_('NOT_FOUND', 'Politica no encontrada');
+  if (current.aplica_a !== 'trainer' || current.entidad_id !== ctx.userId) {
+    throw _bookingErr_('FORBIDDEN', 'No es tu politica');
+  }
+  dbUpdateById('politicas_cancelacion', id, {
+    estado: 'archived',
+    updated_at: dbNowUtc(),
+  });
+  auditOk(ctx.userId, 'delete_cancellation_policy', 'politica_cancelacion', id,
+    '', '', ctx.reqMeta);
+  return { ok: true };
+}
+
+/**
+ * Devuelve la política aplicable: la de menor ventana_horas que el cliente
+ * NO cumple. Permite escalonamiento (ej. 12h aviso suave, 2h bloqueo).
+ * Si el cliente cumple todas las ventanas, retorna null (sin mensaje).
+ *
+ * Prioridad de fuente: trainer > sede > global. Dentro de cada fuente, se
+ * sortea ASC por ventana_horas y se retorna la primera donde
+ * horasParaInicio < ventana_horas.
+ */
+function bookings_getApplicablePolicy_(booking, horasParaInicio) {
+  function pickFromList(list) {
+    if (!list || list.length === 0) return null;
+    const sorted = list.slice().sort(function (a, b) {
+      return Number(a.ventana_horas) - Number(b.ventana_horas);
+    });
+    for (let i = 0; i < sorted.length; i++) {
+      if (Number(horasParaInicio) < Number(sorted[i].ventana_horas)) {
+        return sorted[i];
+      }
+    }
+    return null;
+  }
+
   if (booking.entrenador_id) {
     const trainerPolicies = dbListAll('politicas_cancelacion', function (p) {
       return p.aplica_a === 'trainer'
         && p.entidad_id === booking.entrenador_id
         && p.estado === 'active';
     });
-    if (trainerPolicies.length > 0) return trainerPolicies[0];
+    const picked = pickFromList(trainerPolicies);
+    if (picked) return picked;
+    if (trainerPolicies.length > 0) {
+      // Hay políticas pero el cliente cumple todas — sin mensaje específico.
+      return null;
+    }
 
+    // Fallback a política heredada del perfil (modelo antiguo)
     const tp = dbFindById('entrenadores_perfil', booking.entrenador_id);
     if (tp && tp.politica_cancelacion_id) {
       const p = dbFindById('politicas_cancelacion', tp.politica_cancelacion_id);
-      if (p && p.estado === 'active') return p;
+      if (p && p.estado === 'active'
+          && Number(horasParaInicio) < Number(p.ventana_horas)) {
+        return p;
+      }
     }
   }
   if (booking.sede_id) {
     const sedePolicies = dbListAll('politicas_cancelacion', function (p) {
       return p.aplica_a === 'sede' && p.entidad_id === booking.sede_id && p.estado === 'active';
     });
-    if (sedePolicies.length > 0) return sedePolicies[0];
+    const picked = pickFromList(sedePolicies);
+    if (picked) return picked;
+    if (sedePolicies.length > 0) return null;
   }
   const globalPolicies = dbListAll('politicas_cancelacion', function (p) {
     return p.aplica_a === 'global' && p.estado === 'active';
   });
-  return globalPolicies.length > 0 ? globalPolicies[0] : null;
+  return pickFromList(globalPolicies);
 }
 
-function bookings_getCancellationMessage_(policy, dentroMargen) {
+function bookings_getCancellationMessage_(policy) {
   if (!policy) return '';
-  if (dentroMargen) {
-    return policy.mensaje_dentro_margen
-      || policy.mensaje_cumplimiento
-      || 'Cancelaste dentro del margen permitido.';
-  }
-  return policy.mensaje_fuera_margen
-    || 'Cancelaste fuera del margen sugerido por tu profesional.';
+  // Modelo nuevo: campo único `mensaje`. Fallback a campos antiguos para
+  // políticas creadas antes de la simplificación.
+  return policy.mensaje
+    || policy.mensaje_fuera_margen
+    || policy.mensaje_dentro_margen
+    || policy.mensaje_cumplimiento
+    || '';
 }
 
 function _bookingErr_(code, message) {

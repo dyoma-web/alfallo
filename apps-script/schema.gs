@@ -119,7 +119,8 @@ const SCHEMA = {
 
   politicas_cancelacion: [
     'id', 'nombre', 'ventana_horas', 'dentro_margen', 'fuera_margen',
-    'bloquear_fuera_margen', 'mensaje_dentro_margen', 'mensaje_fuera_margen',
+    'bloquear_fuera_margen', 'mensaje',
+    'mensaje_dentro_margen', 'mensaje_fuera_margen',
     'mensaje_bloqueo', 'mensaje_cumplimiento', 'aplica_a', 'entidad_id',
     'estado', 'created_at', 'updated_at', 'created_by'
   ],

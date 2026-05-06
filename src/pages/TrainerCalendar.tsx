@@ -51,6 +51,8 @@ interface CancellationPolicy {
   nombre: string;
   ventana_horas: number | string;
   bloquear_fuera_margen?: boolean | string;
+  mensaje?: string;
+  // Campos legacy (políticas creadas antes de la simplificación)
   mensaje_dentro_margen?: string;
   mensaje_fuera_margen?: string;
   mensaje_bloqueo?: string;
@@ -457,20 +459,15 @@ function ScheduleClientModal({
 
   async function submit() {
     if (!userId || !fechaLocal) return;
-    const payload = {
-      userId,
-      fechaInicioUtc: new Date(fechaLocal).toISOString(),
-      duracionMin,
-      tipo,
-      sedeId,
-      notas,
-    };
-    // eslint-disable-next-line no-console
-    console.log('[ScheduleClientModal] submit payload:', payload);
     try {
-      const result = await createM.mutate(payload);
-      // eslint-disable-next-line no-console
-      console.log('[ScheduleClientModal] OK result:', result);
+      await createM.mutate({
+        userId,
+        fechaInicioUtc: new Date(fechaLocal).toISOString(),
+        duracionMin,
+        tipo,
+        sedeId,
+        notas,
+      });
       toast({ title: 'Sesion agendada', tone: 'success' });
       setUserId('');
       setFechaLocal('');
@@ -479,10 +476,7 @@ function ScheduleClientModal({
       setSedeId('');
       setNotas('');
       onCreated();
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[ScheduleClientModal] error:', e);
-    }
+    } catch { /* error queda en createM.error */ }
   }
 
   return (
@@ -545,30 +539,6 @@ function ScheduleClientModal({
   );
 }
 
-const POLICY_SUGGESTIONS = [
-  {
-    label: 'Aviso amable',
-    data: {
-      bloquearFueraMargen: false,
-      mensajeFueraMargen: 'Recibimos tu cancelacion. Para futuras sesiones, intenta avisar con mas tiempo para liberar el espacio.',
-    },
-  },
-  {
-    label: 'Bloqueo tardio',
-    data: {
-      bloquearFueraMargen: true,
-      mensajeBloqueo: 'Por la cercania de la sesion ya no es posible cancelar. Te sugerimos tomar el espacio o escribirle a tu profesional.',
-    },
-  },
-  {
-    label: 'Adherencia',
-    data: {
-      mensajeDentroMargen: 'Gracias por avisar con tiempo. Eso ayuda a cuidar tu proceso y la agenda del equipo.',
-      mensajeCumplimiento: 'Buen trabajo sosteniendo tu adherencia. Cada sesion cuenta.',
-    },
-  },
-];
-
 function CancellationPoliciesModal({
   open,
   policies,
@@ -581,106 +551,281 @@ function CancellationPoliciesModal({
   onSaved: () => void;
 }) {
   const saveM = useApiMutation('saveMyCancellationPolicy');
+  const deleteM = useApiMutation('deleteMyCancellationPolicy');
   const toast = useToast();
-  const active = policies.find((p) => p.estado === 'active') ?? policies[0];
-  const [nombre, setNombre] = useState(active?.nombre ?? 'Politica personalizada');
-  const [ventanaHoras, setVentanaHoras] = useState(Number(active?.ventana_horas) || 12);
-  const [bloquearFueraMargen, setBloquearFueraMargen] = useState(active?.bloquear_fuera_margen === true || active?.bloquear_fuera_margen === 'TRUE');
-  const [mensajeDentroMargen, setMensajeDentroMargen] = useState(active?.mensaje_dentro_margen ?? '');
-  const [mensajeFueraMargen, setMensajeFueraMargen] = useState(active?.mensaje_fuera_margen ?? '');
-  const [mensajeBloqueo, setMensajeBloqueo] = useState(active?.mensaje_bloqueo ?? '');
-  const [mensajeCumplimiento, setMensajeCumplimiento] = useState(active?.mensaje_cumplimiento ?? '');
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
-  useEffect(() => {
-    if (!open) return;
-    setNombre(active?.nombre ?? 'Politica personalizada');
-    setVentanaHoras(Number(active?.ventana_horas) || 12);
-    setBloquearFueraMargen(active?.bloquear_fuera_margen === true || active?.bloquear_fuera_margen === 'TRUE');
-    setMensajeDentroMargen(active?.mensaje_dentro_margen ?? '');
-    setMensajeFueraMargen(active?.mensaje_fuera_margen ?? '');
-    setMensajeBloqueo(active?.mensaje_bloqueo ?? '');
-    setMensajeCumplimiento(active?.mensaje_cumplimiento ?? '');
-  }, [active, open]);
+  // Estado del editor — null = sin editar (lista visible). 'new' = nueva.
+  // string = editando una existente por id.
+  const [editing, setEditing] = useState<'new' | string | null>(null);
+
+  const [nombre, setNombre] = useState('');
+  const [ventanaHoras, setVentanaHoras] = useState(12);
+  const [bloquearFueraMargen, setBloquearFueraMargen] = useState(false);
+  const [mensaje, setMensaje] = useState('');
+
+  const activePolicies = useMemo(
+    () => policies.filter((p) => p.estado !== 'archived'),
+    [policies]
+  );
+
+  function openEditor(policy: CancellationPolicy | null) {
+    if (policy) {
+      setEditing(policy.id);
+      setNombre(policy.nombre || '');
+      setVentanaHoras(Number(policy.ventana_horas) || 12);
+      setBloquearFueraMargen(
+        policy.bloquear_fuera_margen === true || policy.bloquear_fuera_margen === 'TRUE'
+      );
+      setMensaje(
+        policy.mensaje
+          || policy.mensaje_fuera_margen
+          || policy.mensaje_dentro_margen
+          || policy.mensaje_cumplimiento
+          || ''
+      );
+    } else {
+      setEditing('new');
+      setNombre('');
+      setVentanaHoras(12);
+      setBloquearFueraMargen(false);
+      setMensaje('');
+    }
+    saveM.reset();
+  }
+
+  function closeEditor() {
+    setEditing(null);
+    saveM.reset();
+  }
+
+  // Validación frontend de duplicado
+  const horasDuplicado = useMemo(() => {
+    return activePolicies.some((p) => {
+      if (editing && editing !== 'new' && p.id === editing) return false;
+      return Number(p.ventana_horas) === ventanaHoras;
+    });
+  }, [activePolicies, editing, ventanaHoras]);
+
+  async function save() {
+    if (mensaje.trim().length < 5) return;
+    if (horasDuplicado) return;
+    try {
+      await saveM.mutate({
+        id: editing === 'new' ? undefined : editing,
+        nombre: nombre.trim() || `Política ${ventanaHoras}h`,
+        ventanaHoras,
+        bloquearFueraMargen,
+        mensaje,
+      });
+      toast({ title: 'Política guardada', tone: 'success' });
+      closeEditor();
+      onSaved();
+    } catch { /* error en saveM.error */ }
+  }
+
+  async function handleDelete(policy: CancellationPolicy) {
+    const ok = await confirm({
+      title: 'Eliminar política',
+      message: `Vas a eliminar la política "${policy.nombre}". No afecta sesiones ya canceladas.`,
+      confirmLabel: 'Eliminar',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await deleteM.mutate({ id: policy.id });
+      toast({ title: 'Política eliminada', tone: 'success' });
+      onSaved();
+    } catch (e) {
+      toast({
+        title: 'No se pudo eliminar',
+        message: e instanceof Error ? e.message : undefined,
+        tone: 'error',
+      });
+    }
+  }
 
   if (!open) return null;
 
-  async function save() {
-    try {
-      await saveM.mutate({
-        id: active?.id,
-        nombre,
-        ventanaHoras,
-        bloquearFueraMargen,
-        mensajeDentroMargen,
-        mensajeFueraMargen,
-        mensajeBloqueo,
-        mensajeCumplimiento,
-      });
-      toast({ title: 'Politica guardada', tone: 'success' });
-      onSaved();
-    } catch { /* error queda en saveM.error */ }
-  }
-
   return (
-    <Modal open onClose={onClose} title="Politicas de cancelacion" size="lg">
+    <Modal open onClose={onClose} title="Políticas de cancelación" size="lg">
       <div className="px-5 py-5 space-y-4">
-        <div className="flex flex-wrap gap-2">
-          {POLICY_SUGGESTIONS.map((s) => (
-            <button key={s.label} type="button" onClick={() => {
-              if ('bloquearFueraMargen' in s.data) setBloquearFueraMargen(!!s.data.bloquearFueraMargen);
-              if (s.data.mensajeDentroMargen) setMensajeDentroMargen(s.data.mensajeDentroMargen);
-              if (s.data.mensajeFueraMargen) setMensajeFueraMargen(s.data.mensajeFueraMargen);
-              if (s.data.mensajeBloqueo) setMensajeBloqueo(s.data.mensajeBloqueo);
-              if (s.data.mensajeCumplimiento) setMensajeCumplimiento(s.data.mensajeCumplimiento);
-            }} className="px-3 py-1.5 rounded-lg border border-line-2 bg-surface-2 text-[12px] text-fg-2 hover:text-fg">
-              {s.label}
-            </button>
-          ))}
-        </div>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <label className="block">
-            <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Nombre</span>
-            <input value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60" />
-          </label>
-          <label className="block">
-            <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Horas minimas</span>
-            <input type="number" min={0} max={168} value={ventanaHoras} onChange={(e) => setVentanaHoras(Number(e.target.value) || 0)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60" />
-          </label>
-        </div>
-        <label className="flex items-start gap-3 p-3 rounded-xl bg-surface-2 border border-line">
-          <input type="checkbox" checked={bloquearFueraMargen} onChange={(e) => setBloquearFueraMargen(e.target.checked)} className="mt-1" />
-          <span className="text-sm text-fg-2">Bloquear cancelaciones del afiliado cuando ya este fuera del margen configurado.</span>
-        </label>
-        <MessageTextarea label="Mensaje dentro del margen" value={mensajeDentroMargen} onChange={setMensajeDentroMargen} />
-        <MessageTextarea label="Mensaje fuera del margen" value={mensajeFueraMargen} onChange={setMensajeFueraMargen} />
-        <MessageTextarea label="Mensaje si se bloquea" value={mensajeBloqueo} onChange={setMensajeBloqueo} />
-        <MessageTextarea label="Mensaje de adherencia" value={mensajeCumplimiento} onChange={setMensajeCumplimiento} />
-        {saveM.error && <div role="alert" className="text-err-fg text-[13px]">{saveM.error.message}</div>}
-        <div className="flex gap-2">
-          <Btn variant="secondary" full onClick={onClose} disabled={saveM.loading}>Cerrar</Btn>
-          <Btn full icon="check" onClick={save} disabled={saveM.loading || nombre.trim().length < 2}>
-            {saveM.loading ? 'Guardando...' : 'Guardar politica'}
-          </Btn>
-        </div>
-      </div>
-    </Modal>
-  );
-}
+        {editing === null ? (
+          <>
+            <div className="rounded-xl border border-line bg-surface-2 p-3 text-[12px] text-fg-2 leading-relaxed">
+              Define cuántas horas antes una cancelación se considera tardía y qué mensaje
+              recibirá el cliente. Puedes crear varias políticas escalonadas (ej. 12h con un
+              aviso amable y 2h con bloqueo). <strong>Importante:</strong> el mensaje de
+              retroalimentación es clave — explica al cliente por qué importa avisar a tiempo
+              y refuerza el cuidado del proceso.
+            </div>
 
-function MessageTextarea({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">{label}</span>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={2} maxLength={500} className="w-full px-3.5 py-3 rounded-xl bg-surface-2 border border-line-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 resize-y" />
-    </label>
+            {activePolicies.length === 0 ? (
+              <p className="text-fg-3 text-[13px] text-center py-6">
+                Aún no tienes políticas configuradas.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {activePolicies
+                  .slice()
+                  .sort((a, b) => Number(a.ventana_horas) - Number(b.ventana_horas))
+                  .map((p) => (
+                    <li
+                      key={p.id}
+                      className="rounded-xl border border-line bg-surface-2 p-3 flex items-start gap-3"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm">{p.nombre}</span>
+                          <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">
+                            {Number(p.ventana_horas)}h
+                          </span>
+                          {(p.bloquear_fuera_margen === true ||
+                            p.bloquear_fuera_margen === 'TRUE') && (
+                            <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-err/10 text-err-fg border border-err/30">
+                              Bloquea
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[12px] text-fg-3 mt-1 line-clamp-2">
+                          {p.mensaje
+                            || p.mensaje_fuera_margen
+                            || p.mensaje_dentro_margen
+                            || '—'}
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-1 flex-none">
+                        <Btn
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditor(p)}
+                          disabled={deleteM.loading}
+                        >
+                          Editar
+                        </Btn>
+                        <Btn
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(p)}
+                          disabled={deleteM.loading}
+                        >
+                          Quitar
+                        </Btn>
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            )}
+
+            <div className="flex gap-2 pt-2 border-t border-line">
+              <Btn variant="secondary" full onClick={onClose}>
+                Cerrar
+              </Btn>
+              <Btn full icon="plus" onClick={() => openEditor(null)}>
+                Nueva política
+              </Btn>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+                  Nombre
+                </span>
+                <input
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  placeholder={`Política ${ventanaHoras}h`}
+                  className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+                  Horas mínimas de anticipación
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={168}
+                  value={ventanaHoras}
+                  onChange={(e) => setVentanaHoras(Number(e.target.value) || 0)}
+                  className={[
+                    'w-full h-11 px-3 rounded-xl bg-surface-2 border text-fg text-sm focus:outline-none',
+                    horasDuplicado ? 'border-err focus:border-err' : 'border-line-2 focus:border-accent/60',
+                  ].join(' ')}
+                />
+                {horasDuplicado && (
+                  <p className="text-err-fg text-[12px] mt-1">
+                    Ya tienes otra política con {ventanaHoras}h. Usa una cantidad distinta.
+                  </p>
+                )}
+              </label>
+            </div>
+
+            <label className="flex items-start gap-3 p-3 rounded-xl bg-surface-2 border border-line">
+              <input
+                type="checkbox"
+                checked={bloquearFueraMargen}
+                onChange={(e) => setBloquearFueraMargen(e.target.checked)}
+                className="mt-1"
+              />
+              <span className="text-sm text-fg-2">
+                Bloquear la cancelación cuando esté dentro de esta ventana. Si lo dejas
+                desactivado, el cliente puede cancelar pero recibirá el mensaje configurado.
+              </span>
+            </label>
+
+            <div>
+              <label className="block">
+                <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+                  Mensaje para el cliente
+                </span>
+                <textarea
+                  value={mensaje}
+                  onChange={(e) => setMensaje(e.target.value)}
+                  rows={4}
+                  maxLength={500}
+                  placeholder="Ej. Cancelaste con poca anticipación. Para próximas sesiones, intenta avisar con más tiempo para liberar el espacio y cuidar tu proceso."
+                  className="w-full px-3.5 py-3 rounded-xl bg-surface-2 border border-line-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 resize-y"
+                />
+              </label>
+              <p className="text-[12px] text-fg-3 mt-1.5">
+                Es importante que sea claro y constructivo: el cliente lo verá al cancelar.
+                Mínimo 5 caracteres, máximo 500.
+              </p>
+            </div>
+
+            {saveM.error && (
+              <div role="alert" className="text-err-fg text-[13px]">
+                {saveM.error.message}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2 border-t border-line">
+              <Btn variant="secondary" full onClick={closeEditor} disabled={saveM.loading}>
+                Volver
+              </Btn>
+              <Btn
+                full
+                icon="check"
+                onClick={save}
+                disabled={
+                  saveM.loading
+                  || mensaje.trim().length < 5
+                  || horasDuplicado
+                }
+              >
+                {saveM.loading
+                  ? 'Guardando...'
+                  : (editing === 'new' ? 'Crear política' : 'Guardar cambios')}
+              </Btn>
+            </div>
+          </>
+        )}
+      </div>
+      {confirmDialog}
+    </Modal>
   );
 }
 

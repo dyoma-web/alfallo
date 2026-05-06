@@ -150,6 +150,9 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'saveMyCancellationPolicy':
       return bookingsSaveMyCancellationPolicy(payload, ctx);
 
+    case 'deleteMyCancellationPolicy':
+      return bookingsDeleteMyCancellationPolicy(payload, ctx);
+
     // ── Trainer (Iter 6) ─────────────────────────────────────────────────
     case 'getTrainerDashboard':
       return trainerGetDashboard(payload, ctx);
