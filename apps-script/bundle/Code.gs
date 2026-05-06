@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-06T03:03:10.952Z                              ║
+ * ║  Built:   2026-05-06T03:10:42.623Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -2424,11 +2424,10 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
 
   try {
     const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
-    const workWindow = bookings_checkWorkingWindow_(trainerProfile, fechaInicio, duracionMin);
-    if (!workWindow.allowed) {
-      throw _bookingErr_('TRAINER_OUTSIDE_WORK_HOURS',
-        'El profesional no atiende en esa franja horaria');
-    }
+    // Nota: NO se valida franja_trabajo cuando el trainer/admin agenda
+    // directamente. Esa franja restringe lo que el CLIENTE puede solicitar
+    // por sí mismo (ver bookingsSubmit), pero el profesional es dueño de
+    // su agenda y puede aceptar sesiones fuera de su horario habitual.
 
     let planUsuarioId = payload.planUsuarioId ? vUuid(payload.planUsuarioId, 'planUsuarioId') : '';
     let planCatalogo = null;
