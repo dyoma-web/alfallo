@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-06T03:10:42.623Z                              ║
+ * ║  Built:   2026-05-06T03:17:23.624Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -2377,6 +2377,9 @@ function bookingsSubmit(payload, ctx) {
 }
 
 function bookingsCreateForClientByTrainer(payload, ctx) {
+  Logger.log('[trainerCreate] BUILD=2026-05-06b · payload=' + JSON.stringify(payload));
+  Logger.log('[trainerCreate] ctx.role=' + ctx.role + ' ctx.userId=' + ctx.userId);
+
   if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
     throw _bookingErr_('FORBIDDEN', 'Solo profesionales y admin pueden agendar afiliados');
   }
@@ -2393,20 +2396,27 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
     ? vNumber(payload.duracionMin, 'duracionMin', { min: 15, max: 240, int: true })
     : 60;
   const notas = payload.notas ? vString(payload.notas, 'notas', { max: 500 }) : '';
+  Logger.log('[trainerCreate] step1 args OK trainerId=' + trainerId + ' userId=' + userId
+    + ' fechaInicio=' + fechaInicio + ' tipo=' + tipo + ' sedeId=' + sedeId + ' duracionMin=' + duracionMin);
 
   const user = dbFindById('usuarios', userId);
   if (!user || user.rol !== 'client' || user.estado !== 'active') {
+    Logger.log('[trainerCreate] step2 FAIL user inválido user=' + JSON.stringify(user));
     throw _bookingErr_('USER_NOT_AVAILABLE', 'El afiliado no esta activo');
   }
+  Logger.log('[trainerCreate] step2 user OK rol=' + user.rol + ' estado=' + user.estado);
 
   const trainer = dbFindById('usuarios', trainerId);
   if (!trainer || trainer.rol !== 'trainer' || trainer.estado !== 'active') {
+    Logger.log('[trainerCreate] step3 FAIL trainer inválido');
     throw _bookingErr_('TRAINER_NOT_AVAILABLE', 'El profesional no esta disponible');
   }
+  Logger.log('[trainerCreate] step3 trainer OK');
 
   if (ctx.role === 'trainer') {
     const accessMap = trainer_getAccessibleClientMap_(trainerId);
     const access = accessMap[userId];
+    Logger.log('[trainerCreate] step4 access=' + JSON.stringify(access));
     if (!access) {
       throw _bookingErr_('FORBIDDEN', 'Este afiliado no esta asignado a tu perfil');
     }
@@ -2424,6 +2434,8 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
 
   try {
     const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+    Logger.log('[trainerCreate] step5 trainerProfile.franja_trabajo='
+      + JSON.stringify(trainerProfile ? trainerProfile.franja_trabajo : null));
     // Nota: NO se valida franja_trabajo cuando el trainer/admin agenda
     // directamente. Esa franja restringe lo que el CLIENTE puede solicitar
     // por sí mismo (ver bookingsSubmit), pero el profesional es dueño de
@@ -2464,6 +2476,8 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
 
     const cap = bookings_getCap_(planCatalogo, tipo);
     const stricts = bookings_getCapStrict_(planCatalogo, tipo);
+    Logger.log('[trainerCreate] step6 cap=' + cap + ' stricts=' + stricts
+      + ' sameSlotBookings=' + sameSlotBookings.length);
     if (sameSlotBookings.length >= cap && (tipo === 'personalizado' || stricts)) {
       throw _bookingErr_('SLOT_FULL', tipo === 'personalizado'
         ? 'Ese horario ya no esta disponible'
@@ -2471,16 +2485,19 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
     }
 
     const unavailRule = availability_checkConflict_(trainerId, fechaInicio, duracionMin);
+    Logger.log('[trainerCreate] step7 unavailRule=' + (unavailRule ? unavailRule.titulo : 'null'));
     if (unavailRule) {
       throw _bookingErr_('TRAINER_UNAVAILABLE',
         'El profesional marco esa franja como no-disponible: "' + unavailRule.titulo + '"');
     }
 
     const sedeBlock = sedeBlocks_checkConflict_(sedeId, fechaInicio, duracionMin);
+    Logger.log('[trainerCreate] step8 sedeBlock=' + (sedeBlock ? sedeBlock.motivo : 'null'));
     if (sedeBlock) {
       throw _bookingErr_('SEDE_BLOCKED',
         'La sede esta bloqueada en esa franja: "' + sedeBlock.motivo + '"');
     }
+    Logger.log('[trainerCreate] step9 todo OK, creando booking');
 
     const now = dbNowUtc();
     const id = cryptoUuid();

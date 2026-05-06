@@ -457,15 +457,20 @@ function ScheduleClientModal({
 
   async function submit() {
     if (!userId || !fechaLocal) return;
+    const payload = {
+      userId,
+      fechaInicioUtc: new Date(fechaLocal).toISOString(),
+      duracionMin,
+      tipo,
+      sedeId,
+      notas,
+    };
+    // eslint-disable-next-line no-console
+    console.log('[ScheduleClientModal] submit payload:', payload);
     try {
-      await createM.mutate({
-        userId,
-        fechaInicioUtc: new Date(fechaLocal).toISOString(),
-        duracionMin,
-        tipo,
-        sedeId,
-        notas,
-      });
+      const result = await createM.mutate(payload);
+      // eslint-disable-next-line no-console
+      console.log('[ScheduleClientModal] OK result:', result);
       toast({ title: 'Sesion agendada', tone: 'success' });
       setUserId('');
       setFechaLocal('');
@@ -474,7 +479,10 @@ function ScheduleClientModal({
       setSedeId('');
       setNotas('');
       onCreated();
-    } catch { /* error queda en createM.error */ }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[ScheduleClientModal] error:', e);
+    }
   }
 
   return (
