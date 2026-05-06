@@ -96,6 +96,7 @@ const SCHEMA = {
     'cupos_max_simultaneos', 'cupos_estricto',
     'alcance', 'owner_id', 'owner_role', 'gimnasio_id',
     'area_profesional', 'categoria_profesional', 'precio_version',
+    'categoria_sede', 'categoria_rank',
     'price_update_mode', 'last_price_update_at',
     'estado', 'created_at', 'updated_at', 'created_by'
   ],

@@ -7,7 +7,7 @@
  */
 
 // Tipos válidos para solicitudes (Iter 10)
-const SOLICITUD_TYPES_NEW = ['crear_gimnasio', 'crear_sede'];
+const SOLICITUD_TYPES_NEW = ['crear_gimnasio', 'crear_sede', 'cambio_plan'];
 
 // ──────────────────────────────────────────────────────────────────────────
 // Crear solicitud — trainer / admin / super_admin
@@ -37,6 +37,9 @@ function solicitudesCreate(payload, ctx) {
     }
     vUuid(datos.gimnasioId, 'datos.gimnasioId');
     vString(vRequired(datos.nombre, 'datos.nombre'), 'datos.nombre', { min: 2, max: 120 });
+  } else if (tipo === 'cambio_plan') {
+    vUuid(vRequired(datos.planId, 'datos.planId'), 'datos.planId');
+    vString(vRequired(datos.motivo, 'datos.motivo'), 'datos.motivo', { min: 5, max: 1000 });
   }
 
   const id = cryptoUuid();
@@ -45,7 +48,9 @@ function solicitudesCreate(payload, ctx) {
     id: id,
     tipo: tipo,
     user_id: ctx.userId,
-    target_id: tipo === 'crear_sede' ? String(datos.gimnasioId) : '',
+    target_id: tipo === 'crear_sede'
+      ? String(datos.gimnasioId)
+      : (tipo === 'cambio_plan' ? String(datos.planId) : ''),
     datos: datos,
     estado: 'pending',
     resuelta_por: '',
@@ -128,6 +133,8 @@ function solicitudesResolve(payload, ctx) {
       createdEntity = solicitudes_approveCreateGimnasio_(sol, ctx);
     } else if (sol.tipo === 'crear_sede') {
       createdEntity = solicitudes_approveCreateSede_(sol, ctx);
+    } else if (sol.tipo === 'cambio_plan') {
+      createdEntity = { reviewed: true };
     } else {
       throw _err('UNSUPPORTED', 'Tipo de solicitud no soportado para auto-aprobación');
     }

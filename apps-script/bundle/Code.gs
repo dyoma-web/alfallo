@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-06T01:47:12.459Z                              ║
+ * ║  Built:   2026-05-06T02:00:40.282Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -114,6 +114,7 @@ const SCHEMA = {
     'cupos_max_simultaneos', 'cupos_estricto',
     'alcance', 'owner_id', 'owner_role', 'gimnasio_id',
     'area_profesional', 'categoria_profesional', 'precio_version',
+    'categoria_sede', 'categoria_rank',
     'price_update_mode', 'last_price_update_at',
     'estado', 'created_at', 'updated_at', 'created_by'
   ],
@@ -4564,6 +4565,10 @@ function adminCreatePlanCatalogo(payload, ctx) {
     ? vEnum(payload.categoriaProfesional, 'categoriaProfesional',
         ['entrenador_personalizado', 'profesor_grupal', 'nutricionista', 'fisio', 'evaluador', 'otro'])
     : (tipo === 'grupal' ? 'profesor_grupal' : 'entrenador_personalizado');
+  const categoriaSede = payload.categoriaSede
+    ? vEnum(payload.categoriaSede, 'categoriaSede', ['basica', 'plus', 'premium', 'elite'])
+    : 'basica';
+  const categoryRanks = { basica: 1, plus: 2, premium: 3, elite: 4 };
 
   const plan = {
     id: id,
@@ -4575,13 +4580,15 @@ function adminCreatePlanCatalogo(payload, ctx) {
     moneda: moneda,
     vigencia_dias: vigenciaDias,
     entrenador_id: '',
-    sede_id: payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '',
+    sede_id: '',
     gimnasio_id: gimnasioId,
     alcance: alcance,
     owner_id: ownerId,
     owner_role: alcance === 'personalizado' ? ctx.role : 'admin',
     area_profesional: areaProfesional,
     categoria_profesional: categoriaProfesional,
+    categoria_sede: categoriaSede,
+    categoria_rank: categoryRanks[categoriaSede] || 1,
     cupos_max_simultaneos: payload.cuposMaxSimultaneos != null
       ? Math.max(1, Number(payload.cuposMaxSimultaneos))
       : defaultMaxSimultaneos,
@@ -4622,7 +4629,7 @@ function adminUpdatePlanCatalogo(payload, ctx) {
   if ('vigenciaDias' in payload) patch.vigencia_dias = Number(payload.vigenciaDias);
   if ('moneda' in payload) patch.moneda = payload.moneda;
   if ('estado' in payload) patch.estado = payload.estado;
-  if ('sedeId' in payload) patch.sede_id = payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '';
+  if ('sedeId' in payload) patch.sede_id = '';
   if ('gimnasioId' in payload) patch.gimnasio_id = payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '';
   if ('areaProfesional' in payload) {
     patch.area_profesional = vEnum(payload.areaProfesional || 'entrenamiento',
@@ -4632,6 +4639,13 @@ function adminUpdatePlanCatalogo(payload, ctx) {
     patch.categoria_profesional = vEnum(payload.categoriaProfesional || 'otro',
       'categoriaProfesional',
       ['entrenador_personalizado', 'profesor_grupal', 'nutricionista', 'fisio', 'evaluador', 'otro']);
+  }
+  if ('categoriaSede' in payload) {
+    const categoriaSede = vEnum(payload.categoriaSede || 'basica',
+      'categoriaSede', ['basica', 'plus', 'premium', 'elite']);
+    const categoryRanks = { basica: 1, plus: 2, premium: 3, elite: 4 };
+    patch.categoria_sede = categoriaSede;
+    patch.categoria_rank = categoryRanks[categoriaSede] || 1;
   }
   let priceUpdateMode = null;
   if ('priceUpdateMode' in payload) {
@@ -4946,7 +4960,7 @@ function adminUpdateGimnasio(payload, ctx) {
  */
 
 // Tipos válidos para solicitudes (Iter 10)
-const SOLICITUD_TYPES_NEW = ['crear_gimnasio', 'crear_sede'];
+const SOLICITUD_TYPES_NEW = ['crear_gimnasio', 'crear_sede', 'cambio_plan'];
 
 // ──────────────────────────────────────────────────────────────────────────
 // Crear solicitud — trainer / admin / super_admin
@@ -4976,6 +4990,9 @@ function solicitudesCreate(payload, ctx) {
     }
     vUuid(datos.gimnasioId, 'datos.gimnasioId');
     vString(vRequired(datos.nombre, 'datos.nombre'), 'datos.nombre', { min: 2, max: 120 });
+  } else if (tipo === 'cambio_plan') {
+    vUuid(vRequired(datos.planId, 'datos.planId'), 'datos.planId');
+    vString(vRequired(datos.motivo, 'datos.motivo'), 'datos.motivo', { min: 5, max: 1000 });
   }
 
   const id = cryptoUuid();
@@ -4984,7 +5001,9 @@ function solicitudesCreate(payload, ctx) {
     id: id,
     tipo: tipo,
     user_id: ctx.userId,
-    target_id: tipo === 'crear_sede' ? String(datos.gimnasioId) : '',
+    target_id: tipo === 'crear_sede'
+      ? String(datos.gimnasioId)
+      : (tipo === 'cambio_plan' ? String(datos.planId) : ''),
     datos: datos,
     estado: 'pending',
     resuelta_por: '',
@@ -5067,6 +5086,8 @@ function solicitudesResolve(payload, ctx) {
       createdEntity = solicitudes_approveCreateGimnasio_(sol, ctx);
     } else if (sol.tipo === 'crear_sede') {
       createdEntity = solicitudes_approveCreateSede_(sol, ctx);
+    } else if (sol.tipo === 'cambio_plan') {
+      createdEntity = { reviewed: true };
     } else {
       throw _err('UNSUPPORTED', 'Tipo de solicitud no soportado para auto-aprobación');
     }

@@ -18,6 +18,8 @@ interface PlanCatalogo {
   entrenador_id?: string;
   sede_id?: string;
   gimnasio_id?: string;
+  categoria_sede?: string;
+  categoria_rank?: number | string;
   alcance?: string;
   area_profesional?: string;
   categoria_profesional?: string;
@@ -37,9 +39,9 @@ interface PlanForm {
   vigenciaDias: string;
   alcance: 'global' | 'personalizado';
   gimnasioId: string;
+  categoriaSede: 'basica' | 'plus' | 'premium' | 'elite';
   areaProfesional: 'entrenamiento' | 'medica' | 'otra';
   categoriaProfesional: string;
-  sedeId: string;
   priceUpdateMode: 'future_only' | 'global';
   cuposMaxSimultaneos: string;
   cuposEstricto: boolean;
@@ -80,17 +82,19 @@ const CATEGORY_OPTIONS: Record<PlanForm['areaProfesional'], Array<{ value: strin
   otra: [{ value: 'otro', label: 'Otra categoria' }],
 };
 
+const SEDE_CATEGORY_OPTIONS = [
+  { value: 'basica', label: 'Basica', rank: 1 },
+  { value: 'plus', label: 'Plus', rank: 2 },
+  { value: 'premium', label: 'Premium', rank: 3 },
+  { value: 'elite', label: 'Elite', rank: 4 },
+] as const;
+
 export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
   const isEdit = !!initialPlan;
   const role = useSession((s) => s.role);
   const isAdmin = role === 'admin' || role === 'super_admin';
   const create = useApiMutation('adminCreatePlanCatalogo');
   const update = useApiMutation('adminUpdatePlanCatalogo');
-  const { data: sedes } = useApiQuery<OptionItem[]>(
-    'adminListSedes',
-    {},
-    { enabled: open && isAdmin }
-  );
   const { data: gimnasios } = useApiQuery<OptionItem[]>(
     'listGimnasiosPublic',
     {},
@@ -114,9 +118,9 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
       vigenciaDias: '60',
       alcance: 'global',
       gimnasioId: '',
+      categoriaSede: 'basica',
       areaProfesional: 'entrenamiento',
       categoriaProfesional: 'entrenador_personalizado',
-      sedeId: '',
       priceUpdateMode: 'future_only',
       cuposMaxSimultaneos: '1',
       cuposEstricto: true,
@@ -139,9 +143,9 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
         vigenciaDias: initialPlan?.vigencia_dias ? String(initialPlan.vigencia_dias) : '60',
         alcance: (initialPlan?.alcance as PlanForm['alcance']) ?? (isAdmin ? 'global' : 'personalizado'),
         gimnasioId: initialPlan?.gimnasio_id ?? '',
+        categoriaSede: (initialPlan?.categoria_sede as PlanForm['categoriaSede']) ?? 'basica',
         areaProfesional: (initialPlan?.area_profesional as PlanForm['areaProfesional']) ?? 'entrenamiento',
         categoriaProfesional: initialPlan?.categoria_profesional ?? (tipoVal === 'grupal' ? 'profesor_grupal' : 'entrenador_personalizado'),
-        sedeId: initialPlan?.sede_id ?? '',
         priceUpdateMode: (initialPlan?.price_update_mode as PlanForm['priceUpdateMode']) ?? 'future_only',
         cuposMaxSimultaneos: initialPlan?.cupos_max_simultaneos
           ? String(initialPlan.cupos_max_simultaneos) : defaultCap,
@@ -166,9 +170,9 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
       vigenciaDias: Number(values.vigenciaDias),
       alcance: isAdmin ? values.alcance : 'personalizado',
       gimnasioId: values.gimnasioId || undefined,
+      categoriaSede: values.categoriaSede,
       areaProfesional: values.areaProfesional,
       categoriaProfesional: values.categoriaProfesional,
-      sedeId: values.sedeId || undefined,
       priceUpdateMode: values.priceUpdateMode,
       cuposMaxSimultaneos: Math.max(1, Number(values.cuposMaxSimultaneos) || 1),
       cuposEstricto: values.cuposEstricto,
@@ -366,17 +370,16 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
             </select>
           </div>
           <div>
-            <label htmlFor="sede" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
-              Sede default (opcional)
+            <label htmlFor="categoriaSede" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+              Categoria de sede
             </label>
             <select
-              id="sede"
-              {...register('sedeId')}
+              id="categoriaSede"
+              {...register('categoriaSede')}
               className="w-full h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60"
             >
-              <option value="">Cualquier sede</option>
-              {sedes?.map((s) => (
-                <option key={s.id} value={s.id}>{s.nombre}</option>
+              {SEDE_CATEGORY_OPTIONS.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
               ))}
             </select>
           </div>

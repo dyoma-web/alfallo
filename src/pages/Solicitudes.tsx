@@ -19,7 +19,7 @@ interface Solicitante {
 
 interface Solicitud {
   id: string;
-  tipo: 'crear_gimnasio' | 'crear_sede';
+  tipo: 'crear_gimnasio' | 'crear_sede' | 'cambio_plan';
   user_id: string;
   target_id: string;
   datos: Record<string, unknown>;
@@ -35,6 +35,7 @@ interface Solicitud {
 const TIPO_LABEL: Record<string, string> = {
   crear_gimnasio: 'Nuevo gimnasio',
   crear_sede: 'Nueva sede',
+  cambio_plan: 'Cambio de plan global',
 };
 
 const ESTADO_BADGE: Record<string, StatusKind> = {
@@ -68,8 +69,8 @@ export default function Solicitudes() {
             </h1>
             <p className="text-fg-3 text-[12px] mt-0.5">
               {isAdmin
-                ? 'Revisa y resuelve solicitudes de entrenadores.'
-                : 'Pide la creación de gimnasios o sedes que no aparecen.'}
+                ? 'Revisa y resuelve solicitudes de profesionales.'
+                : 'Pide la creacion de gimnasios, sedes o cambios en planes globales.'}
             </p>
           </div>
           {isTrainer && (
@@ -162,7 +163,9 @@ function SolicitudRow({
   const datos = solicitud.datos || {};
   const summary = solicitud.tipo === 'crear_gimnasio'
     ? `${(datos as { nombre?: string }).nombre ?? ''} (${(datos as { sedes?: unknown[] }).sedes?.length ?? 0} sedes)`
-    : `${(datos as { nombre?: string }).nombre ?? ''}`;
+    : solicitud.tipo === 'cambio_plan'
+      ? `${(datos as { planNombre?: string }).planNombre ?? 'Plan global'}`
+      : `${(datos as { nombre?: string }).nombre ?? ''}`;
 
   return (
     <li>
@@ -191,6 +194,11 @@ function SolicitudRow({
             {solicitud.motivo_resolucion && (
               <div className="text-fg-2 text-[12px] mt-1 italic">
                 "{solicitud.motivo_resolucion}"
+              </div>
+            )}
+            {solicitud.tipo === 'cambio_plan' && (
+              <div className="text-fg-2 text-[12px] mt-1">
+                {(datos as { motivo?: string }).motivo}
               </div>
             )}
           </div>
@@ -282,14 +290,16 @@ function ResolveModal({
 
         <div className="flex flex-col gap-2 pt-2">
           <p className="text-[12px] text-fg-3">
-            Aprobar creará automáticamente la entidad. Rechazar notifica al solicitante.
+            {solicitud.tipo === 'cambio_plan'
+              ? 'Aprobar marca la solicitud como revisada. Rechazar notifica al solicitante.'
+              : 'Aprobar creará automáticamente la entidad. Rechazar notifica al solicitante.'}
           </p>
           <div className="flex gap-2">
             <Btn variant="danger" full onClick={() => decide('reject')} disabled={resolve.loading}>
               {resolve.loading ? '...' : 'Rechazar'}
             </Btn>
             <Btn full onClick={() => decide('approve')} disabled={resolve.loading}>
-              {resolve.loading ? '...' : 'Aprobar y crear'}
+              {resolve.loading ? '...' : solicitud.tipo === 'cambio_plan' ? 'Marcar revisada' : 'Aprobar y crear'}
             </Btn>
           </div>
           <Btn variant="ghost" full onClick={onClose} disabled={resolve.loading}>Cancelar</Btn>

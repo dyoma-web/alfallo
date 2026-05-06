@@ -830,6 +830,10 @@ function adminCreatePlanCatalogo(payload, ctx) {
     ? vEnum(payload.categoriaProfesional, 'categoriaProfesional',
         ['entrenador_personalizado', 'profesor_grupal', 'nutricionista', 'fisio', 'evaluador', 'otro'])
     : (tipo === 'grupal' ? 'profesor_grupal' : 'entrenador_personalizado');
+  const categoriaSede = payload.categoriaSede
+    ? vEnum(payload.categoriaSede, 'categoriaSede', ['basica', 'plus', 'premium', 'elite'])
+    : 'basica';
+  const categoryRanks = { basica: 1, plus: 2, premium: 3, elite: 4 };
 
   const plan = {
     id: id,
@@ -841,13 +845,15 @@ function adminCreatePlanCatalogo(payload, ctx) {
     moneda: moneda,
     vigencia_dias: vigenciaDias,
     entrenador_id: '',
-    sede_id: payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '',
+    sede_id: '',
     gimnasio_id: gimnasioId,
     alcance: alcance,
     owner_id: ownerId,
     owner_role: alcance === 'personalizado' ? ctx.role : 'admin',
     area_profesional: areaProfesional,
     categoria_profesional: categoriaProfesional,
+    categoria_sede: categoriaSede,
+    categoria_rank: categoryRanks[categoriaSede] || 1,
     cupos_max_simultaneos: payload.cuposMaxSimultaneos != null
       ? Math.max(1, Number(payload.cuposMaxSimultaneos))
       : defaultMaxSimultaneos,
@@ -888,7 +894,7 @@ function adminUpdatePlanCatalogo(payload, ctx) {
   if ('vigenciaDias' in payload) patch.vigencia_dias = Number(payload.vigenciaDias);
   if ('moneda' in payload) patch.moneda = payload.moneda;
   if ('estado' in payload) patch.estado = payload.estado;
-  if ('sedeId' in payload) patch.sede_id = payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '';
+  if ('sedeId' in payload) patch.sede_id = '';
   if ('gimnasioId' in payload) patch.gimnasio_id = payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '';
   if ('areaProfesional' in payload) {
     patch.area_profesional = vEnum(payload.areaProfesional || 'entrenamiento',
@@ -898,6 +904,13 @@ function adminUpdatePlanCatalogo(payload, ctx) {
     patch.categoria_profesional = vEnum(payload.categoriaProfesional || 'otro',
       'categoriaProfesional',
       ['entrenador_personalizado', 'profesor_grupal', 'nutricionista', 'fisio', 'evaluador', 'otro']);
+  }
+  if ('categoriaSede' in payload) {
+    const categoriaSede = vEnum(payload.categoriaSede || 'basica',
+      'categoriaSede', ['basica', 'plus', 'premium', 'elite']);
+    const categoryRanks = { basica: 1, plus: 2, premium: 3, elite: 4 };
+    patch.categoria_sede = categoriaSede;
+    patch.categoria_rank = categoryRanks[categoriaSede] || 1;
   }
   let priceUpdateMode = null;
   if ('priceUpdateMode' in payload) {

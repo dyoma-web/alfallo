@@ -9,6 +9,7 @@ import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { PlanFormModal } from '../components/admin/PlanFormModal';
 import { AssignPlanModal } from '../components/admin/AssignPlanModal';
 import { DetailModal, type DetailSection } from '../components/DetailModal';
+import { Modal } from '../components/Modal';
 import { useConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 import { config } from '../lib/config';
@@ -30,6 +31,8 @@ interface PlanCatalogo {
   gimnasio?: { id: string; nombre: string } | null;
   area_profesional?: string;
   categoria_profesional?: string;
+  categoria_sede?: string;
+  categoria_rank?: number | string;
   precio_version?: number | string;
   estado?: string;
   entrenador?: { id: string; nombres: string; apellidos: string } | null;
@@ -57,6 +60,13 @@ const CATEGORY_LABEL: Record<string, string> = {
   otro: 'Otra categoria',
 };
 
+const SEDE_CATEGORY_LABEL: Record<string, string> = {
+  basica: 'Basica',
+  plus: 'Plus',
+  premium: 'Premium',
+  elite: 'Elite',
+};
+
 export default function AdminPlanes() {
   const role = useSession((s) => s.role);
   const isAdmin = role === 'admin' || role === 'super_admin';
@@ -65,6 +75,7 @@ export default function AdminPlanes() {
   const [editingPlan, setEditingPlan] = useState<PlanCatalogo | null>(null);
   const [viewingPlan, setViewingPlan] = useState<PlanCatalogo | null>(null);
   const [assigningPlanId, setAssigningPlanId] = useState<string | null>(null);
+  const [suggestingPlan, setSuggestingPlan] = useState<PlanCatalogo | null>(null);
 
   const { data, error, loading, refetch } = useApiQuery<PlanCatalogo[]>(
     'adminListPlanesCatalogo'
@@ -162,8 +173,10 @@ export default function AdminPlanes() {
                 onEdit={() => setEditingPlan(p)}
                 onAssign={() => setAssigningPlanId(p.id)}
                 onArchive={() => handleArchive(p.id)}
+                onSuggest={() => setSuggestingPlan(p)}
                 busy={update.loading}
                 canAssign={isAdmin}
+                canSuggest={!isAdmin && p.alcance !== 'personalizado'}
               />
             ))}
           </ul>
@@ -207,6 +220,12 @@ export default function AdminPlanes() {
         />
       )}
 
+      <PlanChangeRequestModal
+        plan={suggestingPlan}
+        onClose={() => setSuggestingPlan(null)}
+        onSubmitted={() => setSuggestingPlan(null)}
+      />
+
       {confirmDialog}
     </AppShell>
   );
@@ -249,6 +268,7 @@ function PlanDetailModal({
         { label: 'Area', value: AREA_LABEL[plan.area_profesional || ''] ?? 'Sin area' },
         { label: 'Categoria', value: CATEGORY_LABEL[plan.categoria_profesional || ''] ?? 'Sin categoria' },
         { label: 'Gimnasio', value: plan.gimnasio ? plan.gimnasio.nombre : 'Sin gimnasio' },
+        { label: 'Categoria sede', value: SEDE_CATEGORY_LABEL[plan.categoria_sede || ''] ?? 'Basica' },
       ],
     },
     {
@@ -268,17 +288,13 @@ function PlanDetailModal({
       ],
     },
     {
-      title: 'Asignación',
+      title: 'Propiedad tecnica',
       fields: [
         {
-          label: 'Entrenador titular',
-          value: plan.entrenador
-            ? `${plan.entrenador.nombres} ${plan.entrenador.apellidos}`.trim()
-            : 'Plan de la plataforma (sin titular)',
-        },
-        {
-          label: 'Sede default',
-          value: plan.sede ? plan.sede.nombre : 'Cualquier sede',
+          label: 'Propietario',
+          value: plan.owner
+            ? `${plan.owner.nombres} ${plan.owner.apellidos}`.trim()
+            : 'Admin / plataforma',
         },
       ],
     },
@@ -321,16 +337,20 @@ function PlanRow({
   onEdit,
   onAssign,
   onArchive,
+  onSuggest,
   busy,
   canAssign,
+  canSuggest,
 }: {
   plan: PlanCatalogo;
   onView: () => void;
   onEdit: () => void;
   onAssign: () => void;
   onArchive: () => void;
+  onSuggest: () => void;
   busy: boolean;
   canAssign: boolean;
+  canSuggest: boolean;
 }) {
   const isArchived = plan.estado === 'archived';
   return (
@@ -377,6 +397,9 @@ function PlanRow({
                   {plan.sede && <span>Sede: {plan.sede.nombre}</span>}
                 </div>
               )}
+              <div className="text-fg-3 text-[11px] mt-1">
+                {plan.gimnasio?.nombre || 'Sin gimnasio'} · {SEDE_CATEGORY_LABEL[plan.categoria_sede || ''] ?? 'Basica'}
+              </div>
             </div>
 
             <StatusBadge
@@ -395,6 +418,11 @@ function PlanRow({
               {canAssign && (
                 <Btn variant="outline" size="sm" onClick={onAssign} disabled={busy}>
                   Asignar a usuario
+                </Btn>
+              )}
+              {canSuggest && (
+                <Btn variant="outline" size="sm" onClick={onSuggest} disabled={busy}>
+                  Sugerir cambio
                 </Btn>
               )}
               <Btn variant="ghost" size="sm" onClick={onArchive} disabled={busy}>
@@ -418,4 +446,81 @@ function formatMoney(amount: number, currency: string): string {
   } catch {
     return `${amount.toLocaleString()} ${currency}`;
   }
+}
+
+function PlanChangeRequestModal({
+  plan,
+  onClose,
+  onSubmitted,
+}: {
+  plan: PlanCatalogo | null;
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const create = useApiMutation('createSolicitud');
+  const toast = useToast();
+  const [motivo, setMotivo] = useState('');
+
+  if (!plan) return null;
+  const currentPlan = plan;
+
+  async function submit() {
+    if (motivo.trim().length < 5) return;
+    try {
+      await create.mutate({
+        tipo: 'cambio_plan',
+        datos: {
+          planId: currentPlan.id,
+          planNombre: currentPlan.nombre,
+          motivo: motivo.trim(),
+        },
+      });
+      toast({ title: 'Solicitud enviada', tone: 'success' });
+      setMotivo('');
+      onSubmitted();
+    } catch {
+      /* error en hook */
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Sugerir cambio de plan" size="lg">
+      <div className="px-5 py-5 space-y-4">
+        <div className="rounded-xl bg-surface-2 border border-line p-3">
+          <div className="font-medium text-sm">{plan.nombre}</div>
+          <div className="text-[12px] text-fg-3 mt-0.5">
+            {plan.gimnasio?.nombre || 'Sin gimnasio'} · {SEDE_CATEGORY_LABEL[plan.categoria_sede || ''] ?? 'Basica'}
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="planChangeReason" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+            Sugerencia para admin
+          </label>
+          <textarea
+            id="planChangeReason"
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            rows={4}
+            maxLength={1000}
+            placeholder="Describe el ajuste de precio, categoria, sesiones, vigencia o condiciones..."
+            className="w-full px-3.5 py-3 rounded-xl bg-surface-2 border border-line-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 resize-y"
+          />
+        </div>
+
+        {create.error && (
+          <div role="alert" className="text-err-fg text-[13px]">{create.error.message}</div>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <Btn variant="secondary" full onClick={onClose} disabled={create.loading}>
+            Cancelar
+          </Btn>
+          <Btn full onClick={submit} disabled={create.loading || motivo.trim().length < 5}>
+            {create.loading ? 'Enviando...' : 'Enviar solicitud'}
+          </Btn>
+        </div>
+      </div>
+    </Modal>
+  );
 }
