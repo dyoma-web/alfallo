@@ -22,6 +22,7 @@ interface Sede {
   gimnasio_id?: string;
   categoria_sede?: string;
   categoria_rank?: number | string;
+  mensaje_categoria_superior?: string;
 }
 
 interface SedeForm {
@@ -38,6 +39,7 @@ interface SedeForm {
   reglas: string;
   gimnasioId: string;
   categoriaSede: string;
+  mensajeCategoriaSuperior: string;
 }
 
 interface GymOption {
@@ -89,6 +91,7 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
       reglas: '',
       gimnasioId: '',
       categoriaSede: 'basica',
+      mensajeCategoriaSuperior: '',
     },
   });
 
@@ -108,6 +111,7 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
         reglas: initialSede?.reglas ?? '',
         gimnasioId: initialSede?.gimnasio_id ?? '',
         categoriaSede: initialSede?.categoria_sede ?? 'basica',
+        mensajeCategoriaSuperior: initialSede?.mensaje_categoria_superior ?? '',
       });
       create.reset();
       update.reset();
@@ -176,6 +180,23 @@ export function SedeFormModal({ open, initialSede, onClose, onSaved }: Props) {
           </select>
           <p className="text-[12px] text-fg-3 mt-1.5">
             Define la jerarquia comercial de la sede para advertir cambios de categoria durante el agendamiento.
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="mensajeCategoriaSuperior" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+            Mensaje de costo diferencial (opcional)
+          </label>
+          <textarea
+            id="mensajeCategoriaSuperior"
+            {...register('mensajeCategoriaSuperior')}
+            rows={2}
+            maxLength={500}
+            placeholder="Ej. Esta sede tiene un costo adicional del 20% para clientes con plan en sede inferior."
+            className="w-full px-3.5 py-3 rounded-xl bg-surface-2 border border-line-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 resize-y"
+          />
+          <p className="text-[12px] text-fg-3 mt-1.5">
+            Se muestra al cliente cuando su sede base es de categoria inferior. Si lo dejas vacío, se muestra el aviso genérico.
           </p>
         </div>
 

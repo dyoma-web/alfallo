@@ -862,6 +862,9 @@ function adminCreateSede(payload, ctx) {
     gimnasio_id: payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '',
     categoria_sede: categoriaSede,
     categoria_rank: categoriaRank,
+    mensaje_categoria_superior: payload.mensajeCategoriaSuperior
+      ? vString(payload.mensajeCategoriaSuperior, 'mensajeCategoriaSuperior', { max: 500 })
+      : '',
     created_at: now,
     updated_at: now,
   };
@@ -880,7 +883,7 @@ function adminUpdateSede(payload, ctx) {
   const allowed = ['nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
                    'telefono', 'responsable', 'horarios', 'capacidad',
                    'observaciones', 'servicios', 'reglas', 'estado', 'gimnasio_id',
-                   'categoria_sede', 'categoria_rank'];
+                   'categoria_sede', 'categoria_rank', 'mensaje_categoria_superior'];
   const patch = {};
   for (let i = 0; i < allowed.length; i++) {
     const k = allowed[i];
@@ -900,6 +903,11 @@ function adminUpdateSede(payload, ctx) {
   }
   if ('servicios' in patch && Array.isArray(patch.servicios)) {
     patch.servicios = patch.servicios.join(',');
+  }
+  if ('mensaje_categoria_superior' in patch) {
+    patch.mensaje_categoria_superior = patch.mensaje_categoria_superior
+      ? vString(patch.mensaje_categoria_superior, 'mensajeCategoriaSuperior', { max: 500 })
+      : '';
   }
   patch.updated_at = dbNowUtc();
 

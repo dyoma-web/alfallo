@@ -51,7 +51,7 @@ const SCHEMA = {
     'id', 'nombre', 'codigo_interno', 'direccion', 'ciudad', 'barrio',
     'telefono', 'responsable', 'horarios', 'capacidad', 'observaciones',
     'servicios', 'reglas', 'estado', 'gimnasio_id',
-    'categoria_sede', 'categoria_rank',
+    'categoria_sede', 'categoria_rank', 'mensaje_categoria_superior',
     'created_at', 'updated_at'
   ],
 

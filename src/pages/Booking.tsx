@@ -29,6 +29,7 @@ interface Sede {
   direccion?: string;
   category?: string;
   categoryRank?: number;
+  mensajeCategoriaSuperior?: string;
   isBase?: boolean;
 }
 interface PlanInfo {
@@ -536,8 +537,18 @@ export default function Booking() {
 
             {isHigherCategory && selectedSede && baseSede && (
               <WarningCard>
-                {selectedSede.nombre} es categoria {sedeCategoryLabel(selectedSede)}, superior a tu base{' '}
-                {sedeCategoryLabel(baseSede)}. Si tu plan no cubre ese nivel, puede requerir autorización.
+                {selectedSede.mensajeCategoriaSuperior ? (
+                  <>
+                    <strong>{selectedSede.nombre}</strong> es categoría {sedeCategoryLabel(selectedSede)},
+                    superior a tu base {sedeCategoryLabel(baseSede)}.{' '}
+                    {selectedSede.mensajeCategoriaSuperior}
+                  </>
+                ) : (
+                  <>
+                    {selectedSede.nombre} es categoria {sedeCategoryLabel(selectedSede)}, superior a tu base{' '}
+                    {sedeCategoryLabel(baseSede)}. Puede aplicar un costo diferencial; consúltalo con tu profesional.
+                  </>
+                )}
               </WarningCard>
             )}
 

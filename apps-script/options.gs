@@ -21,6 +21,7 @@ function optionsGetBookingOptions(_payload, ctx) {
       direccion: s.direccion,
       category: s.categoria_sede || '',
       categoryRank: Number(s.categoria_rank) || 0,
+      mensajeCategoriaSuperior: s.mensaje_categoria_superior || '',
       isBase: relation ? (relation.principal === true || relation.principal === 'TRUE') : false,
     };
   }
