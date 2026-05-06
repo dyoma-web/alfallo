@@ -450,6 +450,196 @@ function adminSetUserSedes(payload, ctx) {
   return adminGetUserSedes({ userId: userId }, ctx);
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Multi-profesional: un cliente puede tener varios profesionales asignados
+// (entrenador + nutricionista + fisio, etc). Tabla pivote usuarios_profesionales.
+// ──────────────────────────────────────────────────────────────────────────
+
+const USUARIOS_PROFESIONALES_AREAS = ['entrenamiento', 'medica', 'otra'];
+const USUARIOS_PROFESIONALES_CATEGORIAS = [
+  'entrenador_personalizado', 'profesor_grupal',
+  'nutricionista', 'fisio', 'evaluador', 'otro'
+];
+
+function adminGetUserProfesionales(payload, ctx) {
+  admin_requireAdmin_(ctx);
+  const userId = vUuid(vRequired(payload.userId, 'userId'), 'userId');
+  const user = dbFindById('usuarios', userId);
+  if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
+  if (user.rol !== 'client') {
+    throw _err('NOT_CLIENT', 'Solo se administran profesionales de clientes');
+  }
+
+  const rels = dbListAll('usuarios_profesionales', function (r) {
+    return r.user_id === userId && r.estado === 'active';
+  });
+
+  const profCache = {};
+  function lookupProfesional(id) {
+    if (!id) return null;
+    if (id in profCache) return profCache[id];
+    const u = dbFindById('usuarios', id);
+    if (!u) {
+      profCache[id] = null;
+      return null;
+    }
+    const profile = dbFindById('entrenadores_perfil', id);
+    profCache[id] = {
+      id: u.id,
+      nombres: u.nombres,
+      apellidos: u.apellidos,
+      nick: u.nick,
+      foto_url: u.foto_url,
+      estado: u.estado,
+      categoriaProfesional: profile ? (profile.categoria_profesional || '') : '',
+      tipoProfesional: profile ? (profile.tipo_profesional || '') : '',
+    };
+    return profCache[id];
+  }
+
+  rels.sort(function (a, b) {
+    return String(a.created_at || '').localeCompare(String(b.created_at || ''));
+  });
+
+  return {
+    userId: userId,
+    assignments: rels.map(function (r) {
+      return {
+        id: r.id,
+        profesionalId: r.profesional_id,
+        areaProfesional: r.area_profesional || '',
+        categoriaProfesional: r.categoria_profesional || '',
+        tipoRelacion: r.tipo_relacion || '',
+        principal: r.principal === true || r.principal === 'TRUE',
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        profesional: lookupProfesional(r.profesional_id),
+      };
+    }),
+  };
+}
+
+function adminSetUserProfesionales(payload, ctx) {
+  admin_requireAdmin_(ctx);
+  const userId = vUuid(vRequired(payload.userId, 'userId'), 'userId');
+  const user = dbFindById('usuarios', userId);
+  if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
+  if (user.rol !== 'client') {
+    throw _err('NOT_CLIENT', 'Solo se administran profesionales de clientes');
+  }
+
+  const rawAssignments = Array.isArray(payload.assignments) ? payload.assignments : [];
+  const byProf = {};
+  const orderedProfIds = [];
+
+  for (let i = 0; i < rawAssignments.length; i++) {
+    const item = rawAssignments[i];
+    const profesionalId = vUuid(vRequired(item.profesionalId, 'profesionalId'), 'profesionalId');
+    if (profesionalId === userId) {
+      throw _err('VALIDATION', 'Un usuario no puede ser su propio profesional');
+    }
+    const prof = dbFindById('usuarios', profesionalId);
+    if (!prof || prof.rol !== 'trainer') {
+      throw _err('PROFESIONAL_INVALID', 'Profesional inválido');
+    }
+    if (byProf[profesionalId]) {
+      throw _err('VALIDATION', 'No se permite el mismo profesional dos veces');
+    }
+    const areaProfesional = item.areaProfesional
+      ? vEnum(item.areaProfesional, 'areaProfesional', USUARIOS_PROFESIONALES_AREAS)
+      : 'entrenamiento';
+    const categoriaProfesional = item.categoriaProfesional
+      ? vEnum(item.categoriaProfesional, 'categoriaProfesional', USUARIOS_PROFESIONALES_CATEGORIAS)
+      : 'otro';
+    const tipoRelacion = item.tipoRelacion
+      ? vString(item.tipoRelacion, 'tipoRelacion', { max: 60 })
+      : '';
+    byProf[profesionalId] = {
+      profesionalId: profesionalId,
+      areaProfesional: areaProfesional,
+      categoriaProfesional: categoriaProfesional,
+      tipoRelacion: tipoRelacion,
+      principal: item.principal === true || item.principal === 'TRUE',
+    };
+    orderedProfIds.push(profesionalId);
+  }
+
+  // Solo un principal — si vienen varios, se respeta el primero
+  let hasPrincipal = false;
+  for (let j = 0; j < orderedProfIds.length; j++) {
+    if (byProf[orderedProfIds[j]].principal) {
+      if (!hasPrincipal) {
+        hasPrincipal = true;
+      } else {
+        byProf[orderedProfIds[j]].principal = false;
+      }
+    }
+  }
+  if (!hasPrincipal && orderedProfIds.length > 0) {
+    byProf[orderedProfIds[0]].principal = true;
+  }
+
+  const existing = dbListAll('usuarios_profesionales', function (r) {
+    return r.user_id === userId;
+  });
+  const existingByProf = {};
+  for (let k = 0; k < existing.length; k++) {
+    existingByProf[existing[k].profesional_id] = existing[k];
+  }
+
+  const now = dbNowUtc();
+  const keptIds = {};
+  for (let a = 0; a < orderedProfIds.length; a++) {
+    const desired = byProf[orderedProfIds[a]];
+    const found = existingByProf[desired.profesionalId];
+    if (found) {
+      dbUpdateById('usuarios_profesionales', found.id, {
+        area_profesional: desired.areaProfesional,
+        categoria_profesional: desired.categoriaProfesional,
+        tipo_relacion: desired.tipoRelacion,
+        principal: desired.principal,
+        estado: 'active',
+        updated_at: now,
+      });
+      keptIds[found.id] = true;
+    } else {
+      const created = dbInsert('usuarios_profesionales', {
+        id: cryptoUuid(),
+        user_id: userId,
+        profesional_id: desired.profesionalId,
+        area_profesional: desired.areaProfesional,
+        categoria_profesional: desired.categoriaProfesional,
+        tipo_relacion: desired.tipoRelacion,
+        principal: desired.principal,
+        estado: 'active',
+        created_at: now,
+        updated_at: now,
+        created_by: ctx.userId,
+      });
+      keptIds[created.id] = true;
+    }
+  }
+
+  // Borrar las relaciones que ya no están en el set deseado
+  const sheet = db_getSheet_('usuarios_profesionales');
+  const headers = db_getHeaders_(sheet);
+  const idCol = headers.indexOf('id') + 1;
+  for (let r = sheet.getLastRow(); r >= 2; r--) {
+    const id = sheet.getRange(r, idCol).getValue();
+    const row = existing.find(function (rel) { return rel.id === id; });
+    if (row && !keptIds[id]) {
+      sheet.deleteRow(r);
+    }
+  }
+
+  auditOk(ctx.userId, 'set_user_profesionales', 'usuarios_profesionales', userId,
+    JSON.stringify(existing),
+    JSON.stringify(orderedProfIds.map(function (id) { return byProf[id]; })),
+    ctx.reqMeta);
+
+  return adminGetUserProfesionales({ userId: userId }, ctx);
+}
+
 function adminSuspendUser(payload, ctx) {
   admin_requireAdmin_(ctx);
   const userId = vUuid(vRequired(payload.userId, 'userId'), 'userId');

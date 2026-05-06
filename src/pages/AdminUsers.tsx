@@ -8,6 +8,7 @@ import { StatusBadge, type StatusKind } from '../components/StatusBadge';
 import { useApiQuery, useApiMutation } from '../lib/useApiQuery';
 import { UserFormModal } from '../components/admin/UserFormModal';
 import { TrainerProfileModal } from '../components/admin/TrainerProfileModal';
+import { UserProfesionalesModal } from '../components/admin/UserProfesionalesModal';
 import { DetailModal, type DetailSection } from '../components/DetailModal';
 import { Modal } from '../components/Modal';
 import { useConfirmDialog } from '../components/ConfirmDialog';
@@ -106,6 +107,7 @@ export default function AdminUsers() {
   const [showCreate, setShowCreate] = useState(false);
   const [trainerProfileFor, setTrainerProfileFor] = useState<UserListItem | null>(null);
   const [sedeManagerFor, setSedeManagerFor] = useState<UserListItem | null>(null);
+  const [profesionalesFor, setProfesionalesFor] = useState<UserListItem | null>(null);
   const [viewing, setViewing] = useState<UserListItem | null>(null);
 
   const suspend = useApiMutation('adminSuspendUser');
@@ -293,6 +295,7 @@ export default function AdminUsers() {
                 onResend={() => handleResend(u.id)}
                 onTrainerProfile={u.rol === 'trainer' ? () => setTrainerProfileFor(u) : undefined}
                 onManageSedes={u.rol === 'client' ? () => setSedeManagerFor(u) : undefined}
+                onManageProfesionales={u.rol === 'client' ? () => setProfesionalesFor(u) : undefined}
                 busy={suspend.loading || reactivate.loading || resend.loading}
               />
             ))}
@@ -310,6 +313,7 @@ export default function AdminUsers() {
             onResend={handleResend}
             onTrainerProfile={(u) => setTrainerProfileFor(u)}
             onManageSedes={(u) => setSedeManagerFor(u)}
+            onManageProfesionales={(u) => setProfesionalesFor(u)}
             busy={suspend.loading || reactivate.loading || resend.loading}
           />
         )}
@@ -345,6 +349,7 @@ export default function AdminUsers() {
         onEdit={() => { setEditingUser(viewing); setViewing(null); }}
         onTrainerProfile={() => { setTrainerProfileFor(viewing); setViewing(null); }}
         onManageSedes={() => { setSedeManagerFor(viewing); setViewing(null); }}
+        onManageProfesionales={() => { setProfesionalesFor(viewing); setViewing(null); }}
         onSuspend={async () => {
           if (!viewing) return;
           await handleSuspend(viewing.id);
@@ -372,6 +377,15 @@ export default function AdminUsers() {
         }}
       />
 
+      <UserProfesionalesModal
+        user={profesionalesFor}
+        onClose={() => setProfesionalesFor(null)}
+        onSaved={() => {
+          setProfesionalesFor(null);
+          void refetch();
+        }}
+      />
+
       {resentLink && (
         <ResendLinkModal link={resentLink} onClose={() => setResentLink(null)} />
       )}
@@ -387,6 +401,7 @@ function UserDetailModal({
   onEdit,
   onTrainerProfile,
   onManageSedes,
+  onManageProfesionales,
   onSuspend,
   onReactivate,
   onResend,
@@ -397,6 +412,7 @@ function UserDetailModal({
   onEdit: () => void;
   onTrainerProfile: () => void;
   onManageSedes: () => void;
+  onManageProfesionales: () => void;
   onSuspend: () => void;
   onReactivate: () => void;
   onResend: () => void;
@@ -536,6 +552,11 @@ function UserDetailModal({
               Sedes
             </Btn>
           )}
+          {user.rol === 'client' && (
+            <Btn variant="outline" onClick={onManageProfesionales} disabled={busy}>
+              Profesionales
+            </Btn>
+          )}
           {isPending && (
             <Btn variant="outline" onClick={onResend} disabled={busy}>
               Reenviar invitación
@@ -572,6 +593,7 @@ function GroupedUsers({
   onResend,
   onTrainerProfile,
   onManageSedes,
+  onManageProfesionales,
   busy,
 }: {
   users: UserListItem[];
@@ -583,6 +605,7 @@ function GroupedUsers({
   onResend: (id: string) => void;
   onTrainerProfile: (u: UserListItem) => void;
   onManageSedes: (u: UserListItem) => void;
+  onManageProfesionales: (u: UserListItem) => void;
   busy: boolean;
 }) {
   const groups = useMemo(() => {
@@ -656,6 +679,7 @@ function GroupedUsers({
                 onResend={() => onResend(u.id)}
                 onTrainerProfile={u.rol === 'trainer' ? () => onTrainerProfile(u) : undefined}
                 onManageSedes={u.rol === 'client' ? () => onManageSedes(u) : undefined}
+                onManageProfesionales={u.rol === 'client' ? () => onManageProfesionales(u) : undefined}
                 busy={busy}
               />
             ))}
@@ -675,6 +699,7 @@ function UserRow({
   onResend,
   onTrainerProfile,
   onManageSedes,
+  onManageProfesionales,
   busy,
 }: {
   user: UserListItem;
@@ -685,6 +710,7 @@ function UserRow({
   onResend: () => void;
   onTrainerProfile?: () => void;
   onManageSedes?: () => void;
+  onManageProfesionales?: () => void;
   busy: boolean;
 }) {
   const initials =
@@ -787,6 +813,11 @@ function UserRow({
           {user.rol === 'client' && onManageSedes && (
             <Btn variant="outline" size="sm" onClick={onManageSedes} disabled={busy}>
               Sedes
+            </Btn>
+          )}
+          {user.rol === 'client' && onManageProfesionales && (
+            <Btn variant="outline" size="sm" onClick={onManageProfesionales} disabled={busy}>
+              Profesionales
             </Btn>
           )}
           {isSuspended ? (
