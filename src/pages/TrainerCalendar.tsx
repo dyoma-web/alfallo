@@ -30,6 +30,34 @@ interface Booking extends CalendarBooking {
   created_at: string;
 }
 
+interface MyUserOption {
+  id: string;
+  nombres: string;
+  apellidos: string;
+  nick?: string;
+  accessKind?: string;
+  categoriaProfesional?: string;
+}
+
+interface WorkLocation {
+  id: string;
+  nombre: string;
+  ciudad?: string;
+  gimnasio?: { id: string; nombre: string } | null;
+}
+
+interface CancellationPolicy {
+  id: string;
+  nombre: string;
+  ventana_horas: number | string;
+  bloquear_fuera_margen?: boolean | string;
+  mensaje_dentro_margen?: string;
+  mensaje_fuera_margen?: string;
+  mensaje_bloqueo?: string;
+  mensaje_cumplimiento?: string;
+  estado: string;
+}
+
 const STATE_TO_BADGE: Record<string, StatusKind> = {
   solicitado: 'pendiente',
   confirmado: 'confirmado',
@@ -65,6 +93,8 @@ export default function TrainerCalendar() {
   const [sedeFilter, setSedeFilter] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [registeringAttendance, setRegisteringAttendance] = useState<string | null>(null);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showPoliciesModal, setShowPoliciesModal] = useState(false);
 
   useEffect(() => {
     setUserFilter(userParam);
@@ -79,6 +109,11 @@ export default function TrainerCalendar() {
   }
 
   const { data, error, loading, refetch } = useApiQuery<Booking[]>('listMyBookings', {});
+  const { data: myUsers, refetch: refetchMyUsers } = useApiQuery<MyUserOption[]>('listMyUsers');
+  const { data: workLocations } = useApiQuery<{ sedes: WorkLocation[] }>('listMyWorkLocations');
+  const { data: policies, refetch: refetchPolicies } = useApiQuery<CancellationPolicy[]>(
+    'listMyCancellationPolicies'
+  );
 
   // Iter 13: cargar franjas de no-disponibilidad para mostrar de fondo
   const unavailFrom = useMemo(() => {
@@ -144,6 +179,10 @@ export default function TrainerCalendar() {
 
   const clients = useMemo(() => {
     const map = new Map<string, string>();
+    for (const u of myUsers ?? []) {
+      const name = `${u.nombres ?? ''} ${u.apellidos ?? ''}`.trim();
+      if (u.id && !map.has(u.id)) map.set(u.id, name || u.nick || u.id);
+    }
     for (const b of scopedBookings) {
       if (b.cliente?.id) {
         const name = `${b.cliente.nombres ?? ''} ${b.cliente.apellidos ?? ''}`.trim();
@@ -153,7 +192,7 @@ export default function TrainerCalendar() {
     return Array.from(map.entries())
       .map(([id, nombre]) => ({ id, nombre }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
-  }, [scopedBookings]);
+  }, [myUsers, scopedBookings]);
 
   const calendarBookings = useMemo(() => {
     if (!userFilter) return scopedBookings;
@@ -191,7 +230,15 @@ export default function TrainerCalendar() {
           <h1 className="font-display text-2xl md:text-3xl font-semibold tracking-[-0.02em]">
             Mi calendario
           </h1>
-          <ViewToggle mode={viewMode} onChange={setViewMode} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Btn variant="secondary" size="sm" icon="shield" onClick={() => setShowPoliciesModal(true)}>
+              Politicas
+            </Btn>
+            <Btn size="sm" icon="plus" onClick={() => setShowScheduleModal(true)}>
+              Agendar afiliado
+            </Btn>
+            <ViewToggle mode={viewMode} onChange={setViewMode} />
+          </div>
         </div>
 
         {viewMode === 'calendar' && (
@@ -344,6 +391,27 @@ export default function TrainerCalendar() {
             void refetch();
           }}
         />
+
+        <ScheduleClientModal
+          open={showScheduleModal}
+          clients={clients}
+          sedes={workLocations?.sedes ?? []}
+          onClose={() => setShowScheduleModal(false)}
+          onCreated={() => {
+            setShowScheduleModal(false);
+            void refetch();
+            void refetchMyUsers();
+          }}
+        />
+
+        <CancellationPoliciesModal
+          open={showPoliciesModal}
+          policies={policies ?? []}
+          onClose={() => setShowPoliciesModal(false)}
+          onSaved={() => {
+            void refetchPolicies();
+          }}
+        />
       </div>
     </AppShell>
   );
@@ -352,6 +420,246 @@ export default function TrainerCalendar() {
 // ──────────────────────────────────────────────────────────────────────────
 // Subcomponentes
 // ──────────────────────────────────────────────────────────────────────────
+
+function ScheduleClientModal({
+  open,
+  clients,
+  sedes,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  clients: ScopeOption[];
+  sedes: WorkLocation[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const createM = useApiMutation('trainerCreateBookingForUser');
+  const toast = useToast();
+  const [userId, setUserId] = useState('');
+  const [fechaLocal, setFechaLocal] = useState('');
+  const [duracionMin, setDuracionMin] = useState(60);
+  const [tipo, setTipo] = useState('personalizado');
+  const [sedeId, setSedeId] = useState('');
+  const [notas, setNotas] = useState('');
+
+  if (!open) return null;
+
+  async function submit() {
+    if (!userId || !fechaLocal) return;
+    try {
+      await createM.mutate({
+        userId,
+        fechaInicioUtc: new Date(fechaLocal).toISOString(),
+        duracionMin,
+        tipo,
+        sedeId,
+        notas,
+      });
+      toast({ title: 'Sesion agendada', tone: 'success' });
+      setUserId('');
+      setFechaLocal('');
+      setDuracionMin(60);
+      setTipo('personalizado');
+      setSedeId('');
+      setNotas('');
+      onCreated();
+    } catch { /* error queda en createM.error */ }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Agendar afiliado" size="lg">
+      <div className="px-5 py-5 space-y-4">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Afiliado</span>
+            <select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60">
+              <option value="">Seleccionar</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Fecha y hora</span>
+            <input type="datetime-local" value={fechaLocal} onChange={(e) => setFechaLocal(e.target.value)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60" />
+          </label>
+          <label className="block">
+            <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Tipo</span>
+            <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60">
+              <option value="personalizado">Personalizado</option>
+              <option value="semipersonalizado">Semipersonalizado</option>
+              <option value="grupal">Grupal</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Duracion</span>
+            <input type="number" min={15} max={240} step={15} value={duracionMin} onChange={(e) => setDuracionMin(Number(e.target.value) || 60)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60" />
+          </label>
+        </div>
+        <label className="block">
+          <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Sede</span>
+          <select value={sedeId} onChange={(e) => setSedeId(e.target.value)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60">
+            <option value="">Sin sede especifica</option>
+            {sedes.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.gimnasio?.nombre ? `${s.gimnasio.nombre} - ` : ''}{s.nombre}{s.ciudad ? ` - ${s.ciudad}` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Notas internas</span>
+          <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={3} maxLength={500} placeholder="Objetivo de la sesion, ajustes o indicaciones." className="w-full px-3.5 py-3 rounded-xl bg-surface-2 border border-line-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 resize-y" />
+        </label>
+        {createM.error && <div role="alert" className="text-err-fg text-[13px]">{createM.error.message}</div>}
+        <div className="flex gap-2">
+          <Btn variant="secondary" full onClick={onClose} disabled={createM.loading}>Volver</Btn>
+          <Btn full icon="plus" onClick={submit} disabled={createM.loading || !userId || !fechaLocal}>
+            {createM.loading ? 'Agendando...' : 'Agendar'}
+          </Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+const POLICY_SUGGESTIONS = [
+  {
+    label: 'Aviso amable',
+    data: {
+      bloquearFueraMargen: false,
+      mensajeFueraMargen: 'Recibimos tu cancelacion. Para futuras sesiones, intenta avisar con mas tiempo para liberar el espacio.',
+    },
+  },
+  {
+    label: 'Bloqueo tardio',
+    data: {
+      bloquearFueraMargen: true,
+      mensajeBloqueo: 'Por la cercania de la sesion ya no es posible cancelar. Te sugerimos tomar el espacio o escribirle a tu profesional.',
+    },
+  },
+  {
+    label: 'Adherencia',
+    data: {
+      mensajeDentroMargen: 'Gracias por avisar con tiempo. Eso ayuda a cuidar tu proceso y la agenda del equipo.',
+      mensajeCumplimiento: 'Buen trabajo sosteniendo tu adherencia. Cada sesion cuenta.',
+    },
+  },
+];
+
+function CancellationPoliciesModal({
+  open,
+  policies,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  policies: CancellationPolicy[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const saveM = useApiMutation('saveMyCancellationPolicy');
+  const toast = useToast();
+  const active = policies.find((p) => p.estado === 'active') ?? policies[0];
+  const [nombre, setNombre] = useState(active?.nombre ?? 'Politica personalizada');
+  const [ventanaHoras, setVentanaHoras] = useState(Number(active?.ventana_horas) || 12);
+  const [bloquearFueraMargen, setBloquearFueraMargen] = useState(active?.bloquear_fuera_margen === true || active?.bloquear_fuera_margen === 'TRUE');
+  const [mensajeDentroMargen, setMensajeDentroMargen] = useState(active?.mensaje_dentro_margen ?? '');
+  const [mensajeFueraMargen, setMensajeFueraMargen] = useState(active?.mensaje_fuera_margen ?? '');
+  const [mensajeBloqueo, setMensajeBloqueo] = useState(active?.mensaje_bloqueo ?? '');
+  const [mensajeCumplimiento, setMensajeCumplimiento] = useState(active?.mensaje_cumplimiento ?? '');
+
+  useEffect(() => {
+    if (!open) return;
+    setNombre(active?.nombre ?? 'Politica personalizada');
+    setVentanaHoras(Number(active?.ventana_horas) || 12);
+    setBloquearFueraMargen(active?.bloquear_fuera_margen === true || active?.bloquear_fuera_margen === 'TRUE');
+    setMensajeDentroMargen(active?.mensaje_dentro_margen ?? '');
+    setMensajeFueraMargen(active?.mensaje_fuera_margen ?? '');
+    setMensajeBloqueo(active?.mensaje_bloqueo ?? '');
+    setMensajeCumplimiento(active?.mensaje_cumplimiento ?? '');
+  }, [active, open]);
+
+  if (!open) return null;
+
+  async function save() {
+    try {
+      await saveM.mutate({
+        id: active?.id,
+        nombre,
+        ventanaHoras,
+        bloquearFueraMargen,
+        mensajeDentroMargen,
+        mensajeFueraMargen,
+        mensajeBloqueo,
+        mensajeCumplimiento,
+      });
+      toast({ title: 'Politica guardada', tone: 'success' });
+      onSaved();
+    } catch { /* error queda en saveM.error */ }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Politicas de cancelacion" size="lg">
+      <div className="px-5 py-5 space-y-4">
+        <div className="flex flex-wrap gap-2">
+          {POLICY_SUGGESTIONS.map((s) => (
+            <button key={s.label} type="button" onClick={() => {
+              if ('bloquearFueraMargen' in s.data) setBloquearFueraMargen(!!s.data.bloquearFueraMargen);
+              if (s.data.mensajeDentroMargen) setMensajeDentroMargen(s.data.mensajeDentroMargen);
+              if (s.data.mensajeFueraMargen) setMensajeFueraMargen(s.data.mensajeFueraMargen);
+              if (s.data.mensajeBloqueo) setMensajeBloqueo(s.data.mensajeBloqueo);
+              if (s.data.mensajeCumplimiento) setMensajeCumplimiento(s.data.mensajeCumplimiento);
+            }} className="px-3 py-1.5 rounded-lg border border-line-2 bg-surface-2 text-[12px] text-fg-2 hover:text-fg">
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Nombre</span>
+            <input value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60" />
+          </label>
+          <label className="block">
+            <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Horas minimas</span>
+            <input type="number" min={0} max={168} value={ventanaHoras} onChange={(e) => setVentanaHoras(Number(e.target.value) || 0)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60" />
+          </label>
+        </div>
+        <label className="flex items-start gap-3 p-3 rounded-xl bg-surface-2 border border-line">
+          <input type="checkbox" checked={bloquearFueraMargen} onChange={(e) => setBloquearFueraMargen(e.target.checked)} className="mt-1" />
+          <span className="text-sm text-fg-2">Bloquear cancelaciones del afiliado cuando ya este fuera del margen configurado.</span>
+        </label>
+        <MessageTextarea label="Mensaje dentro del margen" value={mensajeDentroMargen} onChange={setMensajeDentroMargen} />
+        <MessageTextarea label="Mensaje fuera del margen" value={mensajeFueraMargen} onChange={setMensajeFueraMargen} />
+        <MessageTextarea label="Mensaje si se bloquea" value={mensajeBloqueo} onChange={setMensajeBloqueo} />
+        <MessageTextarea label="Mensaje de adherencia" value={mensajeCumplimiento} onChange={setMensajeCumplimiento} />
+        {saveM.error && <div role="alert" className="text-err-fg text-[13px]">{saveM.error.message}</div>}
+        <div className="flex gap-2">
+          <Btn variant="secondary" full onClick={onClose} disabled={saveM.loading}>Cerrar</Btn>
+          <Btn full icon="check" onClick={save} disabled={saveM.loading || nombre.trim().length < 2}>
+            {saveM.loading ? 'Guardando...' : 'Guardar politica'}
+          </Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function MessageTextarea({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">{label}</span>
+      <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={2} maxLength={500} className="w-full px-3.5 py-3 rounded-xl bg-surface-2 border border-line-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-accent/60 resize-y" />
+    </label>
+  );
+}
 
 function ViewToggle({
   mode,

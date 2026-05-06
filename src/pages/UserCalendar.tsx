@@ -234,13 +234,14 @@ function BookingDetailModal({
   const cancel = useApiMutation<{
     booking: { estado: string };
     dentroMargen: boolean;
+    mensaje?: string;
     politicaAplicada: { nombre: string; ventanaHoras: number } | null;
   }>('cancelBooking');
 
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [postCancelInfo, setPostCancelInfo] = useState<
-    | { dentroMargen: boolean; politica: string | null }
+    | { dentroMargen: boolean; politica: string | null; mensaje: string }
     | null
   >(null);
 
@@ -257,6 +258,7 @@ function BookingDetailModal({
       setPostCancelInfo({
         dentroMargen: res.dentroMargen,
         politica: res.politicaAplicada?.nombre ?? null,
+        mensaje: res.mensaje ?? '',
       });
     } catch {
       /* error queda en cancel.error */
@@ -293,9 +295,9 @@ function BookingDetailModal({
               className="mt-0.5 flex-none"
             />
             <div>
-              {postCancelInfo.dentroMargen
+              {postCancelInfo.mensaje || (postCancelInfo.dentroMargen
                 ? 'Cancelaste dentro del margen permitido. Tu sesión vuelve a estar disponible para tu plan.'
-                : 'Cancelaste fuera del margen. Según la política, esta sesión podría descontarse de tu plan.'}
+                : 'Cancelaste fuera del margen. Según la política, esta sesión podría descontarse de tu plan.')}
               {postCancelInfo.politica && (
                 <div className="text-[12px] opacity-75 mt-1">
                   Política aplicada: {postCancelInfo.politica}

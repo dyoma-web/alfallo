@@ -125,6 +125,9 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'submitBooking':
       return bookingsSubmit(payload, ctx);
 
+    case 'trainerCreateBookingForUser':
+      return bookingsCreateForClientByTrainer(payload, ctx);
+
     case 'cancelBooking':
       return bookingsCancel(payload, ctx);
 
@@ -140,6 +143,12 @@ function _handleAction(action, rawPayload, token, reqMeta) {
 
     case 'registerAttendance':
       return bookingsRegisterAttendance(payload, ctx);
+
+    case 'listMyCancellationPolicies':
+      return bookingsListMyCancellationPolicies(payload, ctx);
+
+    case 'saveMyCancellationPolicy':
+      return bookingsSaveMyCancellationPolicy(payload, ctx);
 
     // ── Trainer (Iter 6) ─────────────────────────────────────────────────
     case 'getTrainerDashboard':

@@ -279,6 +279,25 @@ auditoria — log de toda escritura
 
 ---
 
+### 5.8b. `usuarios_profesionales`
+**Proposito**: pivot M:N afiliado-profesional para permitir varios profesionales por usuario.
+
+| Columna | Tipo | Req | Descripcion |
+|---|---|---|---|
+| `id` | UUID | si | PK |
+| `user_id` | FK usuarios | si | Afiliado. |
+| `profesional_id` | FK usuarios | si | Profesional asignado. |
+| `area_profesional` | enum/string | | Area amplia: medica, entrenamiento, etc. |
+| `categoria_profesional` | enum/string | | Nutricion, fisioterapia, entrenamiento personalizado, clases grupales, etc. |
+| `tipo_relacion` | string | | Titular, apoyo, seguimiento, evaluacion, etc. |
+| `principal` | boolean | | Principal dentro de esa categoria. |
+| `estado` | enum | si | `active` / `inactive` / `archived` |
+| `created_at` | datetime UTC | si | |
+| `updated_at` | datetime UTC | | |
+| `created_by` | FK usuarios | | |
+
+---
+
 ### 5.9. `sedes_bloqueos`
 **Propósito**: días en que la sede está cerrada (festivos, mantenimiento).
 

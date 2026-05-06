@@ -84,6 +84,13 @@ const SCHEMA = {
     'id', 'sede_id', 'user_id', 'principal', 'created_at'
   ],
 
+  usuarios_profesionales: [
+    'id', 'user_id', 'profesional_id',
+    'area_profesional', 'categoria_profesional', 'tipo_relacion',
+    'principal', 'estado',
+    'created_at', 'updated_at', 'created_by'
+  ],
+
   sedes_bloqueos: [
     'id', 'sede_id', 'desde_utc', 'hasta_utc', 'motivo',
     'creado_por', 'created_at'
@@ -112,7 +119,9 @@ const SCHEMA = {
 
   politicas_cancelacion: [
     'id', 'nombre', 'ventana_horas', 'dentro_margen', 'fuera_margen',
-    'aplica_a', 'entidad_id', 'estado', 'created_at', 'created_by'
+    'bloquear_fuera_margen', 'mensaje_dentro_margen', 'mensaje_fuera_margen',
+    'mensaje_bloqueo', 'mensaje_cumplimiento', 'aplica_a', 'entidad_id',
+    'estado', 'created_at', 'updated_at', 'created_by'
   ],
 
   // ─── Core: Agendamientos (MVP — Iter 5) ────────────────────────────────
@@ -273,6 +282,11 @@ const POLITICA_CANCELACION_DEFAULT = {
   ventana_horas: 12,
   dentro_margen: 'sin_penalizacion',
   fuera_margen: 'descuenta_sesion',
+  bloquear_fuera_margen: false,
+  mensaje_dentro_margen: 'Cancelaste dentro del margen permitido. Gracias por liberar el espacio con tiempo.',
+  mensaje_fuera_margen: 'Esta cancelacion queda fuera del margen sugerido. Para la proxima, intenta avisar con mas tiempo.',
+  mensaje_bloqueo: 'Ya no es posible cancelar por la cercania de la sesion. Te sugerimos tomar el espacio pactado.',
+  mensaje_cumplimiento: 'Gracias por mantener tu adherencia y cuidar la agenda del equipo.',
   aplica_a: 'global',
   entidad_id: '',
   estado: 'active',

@@ -178,6 +178,9 @@ function trainerListMyUsers(_payload, ctx) {
       estado: u.estado,
       accessKind: access.kind,
       sharedSedes: access.sharedSedes,
+      areaProfesional: access.areaProfesional || '',
+      categoriaProfesional: access.categoriaProfesional || '',
+      tipoRelacion: access.tipoRelacion || '',
       planActivo: planActivo,
       proximaSesionUtc: futuras.length > 0 ? futuras[0].fecha_inicio_utc : null,
       proximaSesionEstado: futuras.length > 0 ? futuras[0].estado : null,
@@ -450,6 +453,23 @@ function trainer_getAccessibleClientMap_(trainerId) {
   });
   for (let i = 0; i < assigned.length; i++) {
     result[assigned[i].id] = { kind: 'assigned', sharedSedes: [] };
+  }
+
+  const professionalAssignments = dbListAll('usuarios_profesionales', function (rel) {
+    return rel.profesional_id === trainerId && rel.estado === 'active';
+  });
+  for (let i = 0; i < professionalAssignments.length; i++) {
+    const rel = professionalAssignments[i];
+    const user = dbFindById('usuarios', rel.user_id);
+    if (!user || user.rol !== 'client') continue;
+
+    const existing = result[user.id] || { kind: 'professional', sharedSedes: [] };
+    if (existing.kind !== 'assigned') existing.kind = 'professional';
+    existing.areaProfesional = rel.area_profesional || '';
+    existing.categoriaProfesional = rel.categoria_profesional || '';
+    existing.tipoRelacion = rel.tipo_relacion || '';
+    existing.principal = rel.principal === true || rel.principal === 'TRUE';
+    result[user.id] = existing;
   }
 
   const trainerSedes = dbListAll('sedes_entrenadores', function (st) {

@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-06T02:00:40.282Z                              ║
+ * ║  Built:   2026-05-06T02:26:07.354Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -102,6 +102,13 @@ const SCHEMA = {
     'id', 'sede_id', 'user_id', 'principal', 'created_at'
   ],
 
+  usuarios_profesionales: [
+    'id', 'user_id', 'profesional_id',
+    'area_profesional', 'categoria_profesional', 'tipo_relacion',
+    'principal', 'estado',
+    'created_at', 'updated_at', 'created_by'
+  ],
+
   sedes_bloqueos: [
     'id', 'sede_id', 'desde_utc', 'hasta_utc', 'motivo',
     'creado_por', 'created_at'
@@ -130,7 +137,9 @@ const SCHEMA = {
 
   politicas_cancelacion: [
     'id', 'nombre', 'ventana_horas', 'dentro_margen', 'fuera_margen',
-    'aplica_a', 'entidad_id', 'estado', 'created_at', 'created_by'
+    'bloquear_fuera_margen', 'mensaje_dentro_margen', 'mensaje_fuera_margen',
+    'mensaje_bloqueo', 'mensaje_cumplimiento', 'aplica_a', 'entidad_id',
+    'estado', 'created_at', 'updated_at', 'created_by'
   ],
 
   // ─── Core: Agendamientos (MVP — Iter 5) ────────────────────────────────
@@ -291,6 +300,11 @@ const POLITICA_CANCELACION_DEFAULT = {
   ventana_horas: 12,
   dentro_margen: 'sin_penalizacion',
   fuera_margen: 'descuenta_sesion',
+  bloquear_fuera_margen: false,
+  mensaje_dentro_margen: 'Cancelaste dentro del margen permitido. Gracias por liberar el espacio con tiempo.',
+  mensaje_fuera_margen: 'Esta cancelacion queda fuera del margen sugerido. Para la proxima, intenta avisar con mas tiempo.',
+  mensaje_bloqueo: 'Ya no es posible cancelar por la cercania de la sesion. Te sugerimos tomar el espacio pactado.',
+  mensaje_cumplimiento: 'Gracias por mantener tu adherencia y cuidar la agenda del equipo.',
   aplica_a: 'global',
   entidad_id: '',
   estado: 'active',
@@ -2361,6 +2375,159 @@ function bookingsSubmit(payload, ctx) {
   }
 }
 
+function bookingsCreateForClientByTrainer(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _bookingErr_('FORBIDDEN', 'Solo profesionales y admin pueden agendar afiliados');
+  }
+
+  const trainerId = ctx.role === 'trainer'
+    ? ctx.userId
+    : vUuid(vRequired(payload.entrenadorId, 'entrenadorId'), 'entrenadorId');
+  const userId = vUuid(vRequired(payload.userId, 'userId'), 'userId');
+  const fechaInicio = vIsoDate(vRequired(payload.fechaInicioUtc, 'fechaInicioUtc'), 'fechaInicioUtc');
+  const tipo = vEnum(payload.tipo || 'personalizado', 'tipo',
+    ['personalizado', 'semipersonalizado', 'grupal']);
+  const sedeId = payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '';
+  const duracionMin = payload.duracionMin
+    ? vNumber(payload.duracionMin, 'duracionMin', { min: 15, max: 240, int: true })
+    : 60;
+  const notas = payload.notas ? vString(payload.notas, 'notas', { max: 500 }) : '';
+
+  const user = dbFindById('usuarios', userId);
+  if (!user || user.rol !== 'client' || user.estado !== 'active') {
+    throw _bookingErr_('USER_NOT_AVAILABLE', 'El afiliado no esta activo');
+  }
+
+  const trainer = dbFindById('usuarios', trainerId);
+  if (!trainer || trainer.rol !== 'trainer' || trainer.estado !== 'active') {
+    throw _bookingErr_('TRAINER_NOT_AVAILABLE', 'El profesional no esta disponible');
+  }
+
+  if (ctx.role === 'trainer') {
+    const accessMap = trainer_getAccessibleClientMap_(trainerId);
+    if (!accessMap[userId]) {
+      throw _bookingErr_('FORBIDDEN', 'Este afiliado no esta asignado a tu perfil');
+    }
+  }
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    throw _bookingErr_('SLOT_BUSY', 'El sistema esta ocupado. Intenta en unos segundos.');
+  }
+
+  try {
+    const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
+    const workWindow = bookings_checkWorkingWindow_(trainerProfile, fechaInicio, duracionMin);
+    if (!workWindow.allowed) {
+      throw _bookingErr_('TRAINER_OUTSIDE_WORK_HOURS',
+        'El profesional no atiende en esa franja horaria');
+    }
+
+    let planUsuarioId = payload.planUsuarioId ? vUuid(payload.planUsuarioId, 'planUsuarioId') : '';
+    let planCatalogo = null;
+    if (planUsuarioId) {
+      const plan = dbFindById('planes_usuario', planUsuarioId);
+      if (!plan || plan.user_id !== userId) {
+        throw _bookingErr_('PLAN_INVALID', 'Plan invalido para este afiliado');
+      }
+      if (plan.plan_catalogo_id) planCatalogo = dbFindById('planes_catalogo', plan.plan_catalogo_id);
+    } else {
+      const activePlans = dbListAll('planes_usuario', function (p) {
+        return p.user_id === userId
+          && p.estado === 'active'
+          && Number(p.sesiones_consumidas) < Number(p.sesiones_totales)
+          && (!p.fecha_vencimiento_utc || new Date(fechaInicio) <= new Date(p.fecha_vencimiento_utc));
+      });
+      activePlans.sort(function (a, b) {
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
+      if (activePlans.length > 0) {
+        planUsuarioId = activePlans[0].id;
+        if (activePlans[0].plan_catalogo_id) {
+          planCatalogo = dbFindById('planes_catalogo', activePlans[0].plan_catalogo_id);
+        }
+      }
+    }
+
+    const sameSlotBookings = dbListAll('agendamientos', function (b) {
+      if (b.entrenador_id !== trainerId) return false;
+      if (b.tipo !== tipo) return false;
+      if (['solicitado', 'confirmado', 'pactado'].indexOf(String(b.estado)) === -1) return false;
+      return bookings_overlaps_(b.fecha_inicio_utc, Number(b.duracion_min) || 60, fechaInicio, duracionMin);
+    });
+
+    const cap = bookings_getCap_(planCatalogo, tipo);
+    const stricts = bookings_getCapStrict_(planCatalogo, tipo);
+    if (sameSlotBookings.length >= cap && (tipo === 'personalizado' || stricts)) {
+      throw _bookingErr_('SLOT_FULL', tipo === 'personalizado'
+        ? 'Ese horario ya no esta disponible'
+        : 'El cupo de este tipo de sesion esta lleno en esa franja');
+    }
+
+    const unavailRule = availability_checkConflict_(trainerId, fechaInicio, duracionMin);
+    if (unavailRule) {
+      throw _bookingErr_('TRAINER_UNAVAILABLE',
+        'El profesional marco esa franja como no-disponible: "' + unavailRule.titulo + '"');
+    }
+
+    const sedeBlock = sedeBlocks_checkConflict_(sedeId, fechaInicio, duracionMin);
+    if (sedeBlock) {
+      throw _bookingErr_('SEDE_BLOCKED',
+        'La sede esta bloqueada en esa franja: "' + sedeBlock.motivo + '"');
+    }
+
+    const now = dbNowUtc();
+    const id = cryptoUuid();
+    const booking = dbInsert('agendamientos', {
+      id: id,
+      user_id: userId,
+      entrenador_id: trainerId,
+      sede_id: sedeId,
+      plan_usuario_id: planUsuarioId,
+      grupo_id: '',
+      tipo: tipo,
+      fecha_inicio_utc: fechaInicio,
+      duracion_min: duracionMin,
+      capacidad_max: cap,
+      estado: 'confirmado',
+      color: '',
+      visibilidad_nombres: trainerProfile
+        ? trainerProfile.visibilidad_default === 'nombres_visibles'
+        : false,
+      motivo_cancelacion: '',
+      cancelado_por: '',
+      cancelado_at_utc: '',
+      dentro_margen: '',
+      requiere_autorizacion: false,
+      autorizado_por: ctx.userId,
+      autorizado_at_utc: now,
+      notas_entrenador: notas,
+      notas_usuario: '',
+      created_at: now,
+      updated_at: now,
+      created_by: ctx.userId,
+    });
+
+    alerts_create_({
+      userId: userId,
+      tipo: 'sesion_confirmada',
+      severidad: 'info',
+      titulo: 'Nueva sesion agendada',
+      descripcion: 'Tu profesional agendo una sesion para el ' + new Date(fechaInicio).toLocaleDateString('es-CO',
+        { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'America/Bogota' }),
+      accionUrl: '/calendario',
+      entidadRef: id,
+    });
+
+    auditOk(ctx.userId, 'trainer_create_booking', 'agendamiento', id,
+      '', JSON.stringify({ estado: booking.estado, userId: userId }), ctx.reqMeta);
+
+    return { booking: booking };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Confirmar — solo el entrenador asignado o admin
 // ──────────────────────────────────────────────────────────────────────────
@@ -2587,6 +2754,14 @@ function bookingsCancel(payload, ctx) {
   const horasParaInicio = (new Date(booking.fecha_inicio_utc).getTime() - Date.now()) / 3600000;
   const dentroMargen = horasParaInicio >= ventanaHoras;
 
+  if (booking.user_id === ctx.userId
+      && !dentroMargen
+      && policy
+      && (policy.bloquear_fuera_margen === true || policy.bloquear_fuera_margen === 'TRUE')) {
+    throw _bookingErr_('CANCEL_BLOCKED',
+      policy.mensaje_bloqueo || 'Ya no es posible cancelar por la cercania de la sesion.');
+  }
+
   const now = dbNowUtc();
   const before = JSON.stringify({ estado: booking.estado });
   const updated = dbUpdateById('agendamientos', bookingId, {
@@ -2604,7 +2779,12 @@ function bookingsCancel(payload, ctx) {
   return {
     booking: updated,
     dentroMargen: dentroMargen,
-    politicaAplicada: policy ? { nombre: policy.nombre, ventanaHoras: ventanaHoras } : null,
+    mensaje: bookings_getCancellationMessage_(policy, dentroMargen),
+    politicaAplicada: policy ? {
+      nombre: policy.nombre,
+      ventanaHoras: ventanaHoras,
+      bloquearFueraMargen: policy.bloquear_fuera_margen === true || policy.bloquear_fuera_margen === 'TRUE',
+    } : null,
   };
 }
 
@@ -2842,6 +3022,9 @@ function bookings_getDraftTtl_() {
  * Defaults razonables si no está configurado.
  */
 function bookings_getCap_(trainerProfile, tipo) {
+  if (trainerProfile && trainerProfile.cupos_max_simultaneos) {
+    return Math.max(1, Number(trainerProfile.cupos_max_simultaneos));
+  }
   if (tipo === 'personalizado') {
     if (trainerProfile && trainerProfile.cupos_personalizado) {
       return Math.max(1, Number(trainerProfile.cupos_personalizado));
@@ -2861,6 +3044,13 @@ function bookings_getCap_(trainerProfile, tipo) {
     return 15;
   }
   return 1;
+}
+
+function bookings_getCapStrict_(planCatalogo, _tipo) {
+  if (planCatalogo && planCatalogo.cupos_estricto !== '') {
+    return planCatalogo.cupos_estricto === true || planCatalogo.cupos_estricto === 'TRUE';
+  }
+  return true;
 }
 
 /**
@@ -2934,9 +3124,83 @@ function bookingsGetSlotStates(payload, ctx) {
   };
 }
 
+function bookingsListMyCancellationPolicies(_payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _bookingErr_('FORBIDDEN', 'Solo profesionales y admin');
+  }
+  const trainerId = ctx.userId;
+  const policies = dbListAll('politicas_cancelacion', function (p) {
+    return p.aplica_a === 'trainer' && p.entidad_id === trainerId && p.estado !== 'archived';
+  });
+  policies.sort(function (a, b) {
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+  return policies;
+}
+
+function bookingsSaveMyCancellationPolicy(payload, ctx) {
+  if (ctx.role !== 'trainer' && ctx.role !== 'admin' && ctx.role !== 'super_admin') {
+    throw _bookingErr_('FORBIDDEN', 'Solo profesionales y admin');
+  }
+  const trainerId = ctx.userId;
+  const id = payload.id ? vUuid(payload.id, 'id') : '';
+  const ventanaHoras = vNumber(payload.ventanaHoras || payload.ventana_horas || 12,
+    'ventanaHoras', { min: 0, max: 168, int: true });
+  const now = dbNowUtc();
+  const patch = {
+    nombre: vString(payload.nombre || 'Politica personalizada', 'nombre', { min: 2, max: 80 }),
+    ventana_horas: ventanaHoras,
+    dentro_margen: 'sin_penalizacion',
+    fuera_margen: payload.bloquearFueraMargen ? 'bloquea_cancelacion' : 'descuenta_sesion',
+    bloquear_fuera_margen: !!payload.bloquearFueraMargen,
+    mensaje_dentro_margen: payload.mensajeDentroMargen
+      ? vString(payload.mensajeDentroMargen, 'mensajeDentroMargen', { max: 500 })
+      : '',
+    mensaje_fuera_margen: payload.mensajeFueraMargen
+      ? vString(payload.mensajeFueraMargen, 'mensajeFueraMargen', { max: 500 })
+      : '',
+    mensaje_bloqueo: payload.mensajeBloqueo
+      ? vString(payload.mensajeBloqueo, 'mensajeBloqueo', { max: 500 })
+      : '',
+    mensaje_cumplimiento: payload.mensajeCumplimiento
+      ? vString(payload.mensajeCumplimiento, 'mensajeCumplimiento', { max: 500 })
+      : '',
+    aplica_a: 'trainer',
+    entidad_id: trainerId,
+    estado: payload.estado === 'inactive' ? 'inactive' : 'active',
+    updated_at: now,
+  };
+
+  let policy;
+  if (id) {
+    const current = dbFindById('politicas_cancelacion', id);
+    if (!current || current.aplica_a !== 'trainer' || current.entidad_id !== trainerId) {
+      throw _bookingErr_('NOT_FOUND', 'Politica no encontrada');
+    }
+    policy = dbUpdateById('politicas_cancelacion', id, patch);
+  } else {
+    policy = dbInsert('politicas_cancelacion', Object.assign({
+      id: cryptoUuid(),
+      created_at: now,
+      created_by: trainerId,
+    }, patch));
+  }
+
+  auditOk(ctx.userId, 'save_cancellation_policy', 'politica_cancelacion', policy.id,
+    '', JSON.stringify({ estado: policy.estado, ventanaHoras: ventanaHoras }), ctx.reqMeta);
+  return { policy: policy };
+}
+
 function bookings_getApplicablePolicy_(booking) {
   // Prioridad: política del entrenador > sede > global
   if (booking.entrenador_id) {
+    const trainerPolicies = dbListAll('politicas_cancelacion', function (p) {
+      return p.aplica_a === 'trainer'
+        && p.entidad_id === booking.entrenador_id
+        && p.estado === 'active';
+    });
+    if (trainerPolicies.length > 0) return trainerPolicies[0];
+
     const tp = dbFindById('entrenadores_perfil', booking.entrenador_id);
     if (tp && tp.politica_cancelacion_id) {
       const p = dbFindById('politicas_cancelacion', tp.politica_cancelacion_id);
@@ -2953,6 +3217,17 @@ function bookings_getApplicablePolicy_(booking) {
     return p.aplica_a === 'global' && p.estado === 'active';
   });
   return globalPolicies.length > 0 ? globalPolicies[0] : null;
+}
+
+function bookings_getCancellationMessage_(policy, dentroMargen) {
+  if (!policy) return '';
+  if (dentroMargen) {
+    return policy.mensaje_dentro_margen
+      || policy.mensaje_cumplimiento
+      || 'Cancelaste dentro del margen permitido.';
+  }
+  return policy.mensaje_fuera_margen
+    || 'Cancelaste fuera del margen sugerido por tu profesional.';
 }
 
 function _bookingErr_(code, message) {
@@ -3146,6 +3421,9 @@ function trainerListMyUsers(_payload, ctx) {
       estado: u.estado,
       accessKind: access.kind,
       sharedSedes: access.sharedSedes,
+      areaProfesional: access.areaProfesional || '',
+      categoriaProfesional: access.categoriaProfesional || '',
+      tipoRelacion: access.tipoRelacion || '',
       planActivo: planActivo,
       proximaSesionUtc: futuras.length > 0 ? futuras[0].fecha_inicio_utc : null,
       proximaSesionEstado: futuras.length > 0 ? futuras[0].estado : null,
@@ -3418,6 +3696,23 @@ function trainer_getAccessibleClientMap_(trainerId) {
   });
   for (let i = 0; i < assigned.length; i++) {
     result[assigned[i].id] = { kind: 'assigned', sharedSedes: [] };
+  }
+
+  const professionalAssignments = dbListAll('usuarios_profesionales', function (rel) {
+    return rel.profesional_id === trainerId && rel.estado === 'active';
+  });
+  for (let i = 0; i < professionalAssignments.length; i++) {
+    const rel = professionalAssignments[i];
+    const user = dbFindById('usuarios', rel.user_id);
+    if (!user || user.rol !== 'client') continue;
+
+    const existing = result[user.id] || { kind: 'professional', sharedSedes: [] };
+    if (existing.kind !== 'assigned') existing.kind = 'professional';
+    existing.areaProfesional = rel.area_profesional || '';
+    existing.categoriaProfesional = rel.categoria_profesional || '';
+    existing.tipoRelacion = rel.tipo_relacion || '';
+    existing.principal = rel.principal === true || rel.principal === 'TRUE';
+    result[user.id] = existing;
   }
 
   const trainerSedes = dbListAll('sedes_entrenadores', function (st) {
@@ -6334,6 +6629,9 @@ function _handleAction(action, rawPayload, token, reqMeta) {
     case 'submitBooking':
       return bookingsSubmit(payload, ctx);
 
+    case 'trainerCreateBookingForUser':
+      return bookingsCreateForClientByTrainer(payload, ctx);
+
     case 'cancelBooking':
       return bookingsCancel(payload, ctx);
 
@@ -6349,6 +6647,12 @@ function _handleAction(action, rawPayload, token, reqMeta) {
 
     case 'registerAttendance':
       return bookingsRegisterAttendance(payload, ctx);
+
+    case 'listMyCancellationPolicies':
+      return bookingsListMyCancellationPolicies(payload, ctx);
+
+    case 'saveMyCancellationPolicy':
+      return bookingsSaveMyCancellationPolicy(payload, ctx);
 
     // ── Trainer (Iter 6) ─────────────────────────────────────────────────
     case 'getTrainerDashboard':
