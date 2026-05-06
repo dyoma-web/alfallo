@@ -245,8 +245,14 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
 
   if (ctx.role === 'trainer') {
     const accessMap = trainer_getAccessibleClientMap_(trainerId);
-    if (!accessMap[userId]) {
+    const access = accessMap[userId];
+    if (!access) {
       throw _bookingErr_('FORBIDDEN', 'Este afiliado no esta asignado a tu perfil');
+    }
+    // #10 granularidad: sede compartida es solo lectura — no puede agendar.
+    if (!trainer_canManageClient_(access.kind)) {
+      throw _bookingErr_('FORBIDDEN',
+        'Solo puedes agendar a afiliados asignados directamente o por relación profesional. Este cliente solo está visible por sede compartida.');
     }
   }
 

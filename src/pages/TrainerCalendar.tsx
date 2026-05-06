@@ -194,6 +194,16 @@ export default function TrainerCalendar() {
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [myUsers, scopedBookings]);
 
+  // #10 granularidad: solo afiliados manejables (no sede compartida) pueden ser agendados.
+  const manageableClients = useMemo(() => {
+    const allowed = new Set(
+      (myUsers ?? [])
+        .filter((u) => u.accessKind === 'assigned' || u.accessKind === 'professional')
+        .map((u) => u.id)
+    );
+    return clients.filter((c) => allowed.has(c.id));
+  }, [clients, myUsers]);
+
   const calendarBookings = useMemo(() => {
     if (!userFilter) return scopedBookings;
     return scopedBookings.filter((b) => b.cliente?.id === userFilter);
@@ -394,7 +404,7 @@ export default function TrainerCalendar() {
 
         <ScheduleClientModal
           open={showScheduleModal}
-          clients={clients}
+          clients={manageableClients}
           sedes={workLocations?.sedes ?? []}
           onClose={() => setShowScheduleModal(false)}
           onCreated={() => {
@@ -470,10 +480,15 @@ function ScheduleClientModal({
   return (
     <Modal open onClose={onClose} title="Agendar afiliado" size="lg">
       <div className="px-5 py-5 space-y-4">
+        {clients.length === 0 && (
+          <div className="rounded-xl border border-line bg-surface-2 p-3 text-[12px] text-fg-3">
+            No tienes afiliados con permiso de agendamiento. Solo puedes agendar a clientes asignados directamente o por relación profesional. Los clientes que solo comparten sede contigo son de solo lectura.
+          </div>
+        )}
         <div className="grid sm:grid-cols-2 gap-3">
           <label className="block">
             <span className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">Afiliado</span>
-            <select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60">
+            <select value={userId} onChange={(e) => setUserId(e.target.value)} disabled={clients.length === 0} className="w-full h-11 px-3 rounded-xl bg-surface-2 border border-line-2 text-fg text-sm focus:outline-none focus:border-accent/60 disabled:opacity-50">
               <option value="">Seleccionar</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>

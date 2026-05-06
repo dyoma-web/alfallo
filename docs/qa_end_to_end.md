@@ -186,6 +186,32 @@ Si no existen, créalos desde `/usuarios` como admin y activa via correo.
 
 ---
 
+## 5b. Permisos cruzados (#10) — granularidad por kind
+
+Verificar que la regla "solo lectura para sede compartida" funciona.
+
+### Setup
+
+- Cliente Y: asignado solo via `sedes_usuarios` a Sede Norte. Sin `entrenador_asignado_id`. Sin `usuarios_profesionales` activa. → `accessKind = shared_sede`.
+- Profesional A: trabaja en Sede Norte (sedes_entrenadores). → vería a Cliente Y por sede compartida.
+
+### Validar
+
+- [ ] Profesional A en `/usuarios` ve a Cliente Y con badge **"Solo lectura · sede compartida"**.
+- [ ] Profesional A puede abrir el perfil operativo de Cliente Y (lectura ok).
+- [ ] En el modal **Agendar afiliado** del calendario profesional, Cliente Y **NO aparece** en el dropdown.
+- [ ] Si el dropdown queda vacío, sale el aviso "No tienes afiliados con permiso de agendamiento".
+- [ ] En el modal de **miembros de grupo**, Cliente Y **NO aparece** en el selector "Agregar cliente" (admin sí lo ve, trainer no).
+- [ ] Backend defensivo: si fuerzas un POST a `trainerCreateBookingForUser` con Cliente Y, debe responder `FORBIDDEN`.
+- [ ] Backend defensivo: si fuerzas un POST a `addGrupoMember` con Cliente Y, debe responder `FORBIDDEN`.
+
+### Caso positivo (sanity check)
+
+- Cliente X (asignado a Profesional A) → `accessKind = assigned` → todas las acciones disponibles, sin warnings.
+- Cliente Z asignado via `usuarios_profesionales` → `accessKind = professional` → todas las acciones disponibles.
+
+---
+
 ## 6. Solicitudes (gimnasios y planes)
 
 ### 6.1 Profesional sugiere plan global

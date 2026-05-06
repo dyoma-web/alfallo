@@ -316,6 +316,7 @@ interface UserOption {
   nombres: string;
   apellidos: string;
   email: string;
+  accessKind?: 'assigned' | 'professional' | 'shared_sede';
 }
 
 function ManageMembersModal({
@@ -356,9 +357,15 @@ function ManageMembersModal({
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const toast = useToast();
 
-  // Filtrar candidatos: que NO sean ya miembros activos
+  // Filtrar candidatos: que NO sean ya miembros activos.
+  // #10 granularidad: trainers solo pueden agregar a grupos a sus afiliados
+  // gestionables (assigned o professional). Sede compartida es solo lectura.
   const memberIds = new Set((members ?? []).map((m) => m.user_id));
-  const filteredCandidates = (candidates ?? []).filter((u) => !memberIds.has(u.id));
+  const filteredCandidates = (candidates ?? []).filter((u) => {
+    if (memberIds.has(u.id)) return false;
+    if (!isAdmin && u.accessKind === 'shared_sede') return false;
+    return true;
+  });
 
   async function handleAdd() {
     if (!selectedUserId) return;

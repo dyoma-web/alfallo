@@ -445,6 +445,21 @@ function trainer_endOfDayUtc_(date) {
   return d;
 }
 
+/**
+ * Permisos cruzados (#10): granularidad por kind de acceso.
+ *
+ *   assigned     → asignación directa (entrenador_asignado_id) → puede gestionar.
+ *   professional → relación en usuarios_profesionales activa  → puede gestionar.
+ *   shared_sede  → solo comparten sede activa                 → SOLO LECTURA.
+ *
+ * Lectura (ver perfil, ver sesiones del cliente) se permite para todos los
+ * kinds. Acciones de escritura (agendar, registrar asistencia, agregar a
+ * grupo, asignar plan) se restringen a assigned/professional.
+ */
+function trainer_canManageClient_(accessKind) {
+  return accessKind === 'assigned' || accessKind === 'professional';
+}
+
 function trainer_getAccessibleClientMap_(trainerId) {
   const result = {};
 
@@ -495,7 +510,10 @@ function trainer_getAccessibleClientMap_(trainerId) {
     if (!user || user.rol !== 'client') continue;
 
     const existing = result[user.id] || { kind: 'shared_sede', sharedSedes: [] };
-    if (existing.kind !== 'assigned') existing.kind = 'shared_sede';
+    // Solo bajar a shared_sede si no había kind más fuerte (assigned o professional)
+    if (existing.kind !== 'assigned' && existing.kind !== 'professional') {
+      existing.kind = 'shared_sede';
+    }
     existing.sharedSedes.push({
       id: rel.sede_id,
       nombre: sedeNames[rel.sede_id] || '',

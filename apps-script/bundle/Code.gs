@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-06T02:51:26.902Z                              ║
+ * ║  Built:   2026-05-06T03:03:10.952Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -2406,8 +2406,14 @@ function bookingsCreateForClientByTrainer(payload, ctx) {
 
   if (ctx.role === 'trainer') {
     const accessMap = trainer_getAccessibleClientMap_(trainerId);
-    if (!accessMap[userId]) {
+    const access = accessMap[userId];
+    if (!access) {
       throw _bookingErr_('FORBIDDEN', 'Este afiliado no esta asignado a tu perfil');
+    }
+    // #10 granularidad: sede compartida es solo lectura — no puede agendar.
+    if (!trainer_canManageClient_(access.kind)) {
+      throw _bookingErr_('FORBIDDEN',
+        'Solo puedes agendar a afiliados asignados directamente o por relación profesional. Este cliente solo está visible por sede compartida.');
     }
   }
 
@@ -3689,6 +3695,21 @@ function trainer_endOfDayUtc_(date) {
   return d;
 }
 
+/**
+ * Permisos cruzados (#10): granularidad por kind de acceso.
+ *
+ *   assigned     → asignación directa (entrenador_asignado_id) → puede gestionar.
+ *   professional → relación en usuarios_profesionales activa  → puede gestionar.
+ *   shared_sede  → solo comparten sede activa                 → SOLO LECTURA.
+ *
+ * Lectura (ver perfil, ver sesiones del cliente) se permite para todos los
+ * kinds. Acciones de escritura (agendar, registrar asistencia, agregar a
+ * grupo, asignar plan) se restringen a assigned/professional.
+ */
+function trainer_canManageClient_(accessKind) {
+  return accessKind === 'assigned' || accessKind === 'professional';
+}
+
 function trainer_getAccessibleClientMap_(trainerId) {
   const result = {};
 
@@ -3739,7 +3760,10 @@ function trainer_getAccessibleClientMap_(trainerId) {
     if (!user || user.rol !== 'client') continue;
 
     const existing = result[user.id] || { kind: 'shared_sede', sharedSedes: [] };
-    if (existing.kind !== 'assigned') existing.kind = 'shared_sede';
+    // Solo bajar a shared_sede si no había kind más fuerte (assigned o professional)
+    if (existing.kind !== 'assigned' && existing.kind !== 'professional') {
+      existing.kind = 'shared_sede';
+    }
     existing.sharedSedes.push({
       id: rel.sede_id,
       nombre: sedeNames[rel.sede_id] || '',
@@ -6435,6 +6459,17 @@ function gruposAddMember(payload, ctx) {
   const user = dbFindById('usuarios', userId);
   if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
   if (user.rol !== 'client') throw _err('NOT_CLIENT', 'Solo se agregan clientes a grupos');
+
+  // #10 granularidad: trainer solo puede agregar a grupos a clientes que
+  // gestiona directamente (assigned o professional). Sede compartida es solo lectura.
+  if (ctx.role === 'trainer') {
+    const accessMap = trainer_getAccessibleClientMap_(ctx.userId);
+    const access = accessMap[userId];
+    if (!access || !trainer_canManageClient_(access.kind)) {
+      throw _err('FORBIDDEN',
+        'Solo puedes agregar al grupo a afiliados asignados directamente o por relación profesional.');
+    }
+  }
 
   // ¿Ya es miembro activo?
   const existing = dbListAll('grupos_miembros', function (m) {

@@ -15,7 +15,7 @@ interface UserData {
   nick?: string;
   celular?: string;
   estado: string;
-  accessKind?: 'assigned' | 'shared_sede' | 'admin';
+  accessKind?: 'assigned' | 'professional' | 'shared_sede' | 'admin';
   sharedSedes?: Array<{ id: string; nombre: string; principal?: boolean }>;
 }
 interface PlanData {

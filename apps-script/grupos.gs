@@ -174,6 +174,17 @@ function gruposAddMember(payload, ctx) {
   if (!user) throw _err('NOT_FOUND', 'Usuario no encontrado');
   if (user.rol !== 'client') throw _err('NOT_CLIENT', 'Solo se agregan clientes a grupos');
 
+  // #10 granularidad: trainer solo puede agregar a grupos a clientes que
+  // gestiona directamente (assigned o professional). Sede compartida es solo lectura.
+  if (ctx.role === 'trainer') {
+    const accessMap = trainer_getAccessibleClientMap_(ctx.userId);
+    const access = accessMap[userId];
+    if (!access || !trainer_canManageClient_(access.kind)) {
+      throw _err('FORBIDDEN',
+        'Solo puedes agregar al grupo a afiliados asignados directamente o por relación profesional.');
+    }
+  }
+
   // ¿Ya es miembro activo?
   const existing = dbListAll('grupos_miembros', function (m) {
     return m.grupo_id === grupoId && m.user_id === userId && m.estado === 'active';

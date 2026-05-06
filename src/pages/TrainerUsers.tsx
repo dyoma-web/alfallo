@@ -14,7 +14,7 @@ interface UserListItem {
   nick?: string;
   foto_url?: string;
   estado: string;
-  accessKind?: 'assigned' | 'shared_sede';
+  accessKind?: 'assigned' | 'professional' | 'shared_sede';
   sharedSedes?: Array<{ id: string; nombre: string; principal?: boolean }>;
   planActivo: {
     nombre: string;
@@ -131,8 +131,16 @@ function UserRow({ user }: { user: UserListItem }) {
                 <span className="text-fg-3 text-[12px]">@{user.nick}</span>
               )}
               {user.accessKind === 'shared_sede' && (
+                <span
+                  title="Solo lectura · este afiliado solo aparece por compartir sede contigo. No puedes agendarlo ni agregarlo a tus grupos."
+                  className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-fg-3/10 text-fg-3 border border-fg-3/20"
+                >
+                  Solo lectura · sede compartida
+                </span>
+              )}
+              {user.accessKind === 'professional' && (
                 <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">
-                  Sede compartida
+                  Profesional asignado
                 </span>
               )}
             </div>
