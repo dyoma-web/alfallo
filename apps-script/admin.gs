@@ -758,26 +758,49 @@ function adminUnassignTrainerFromSede(payload, ctx) {
 // Planes catálogo — CRUD
 // ──────────────────────────────────────────────────────────────────────────
 
-function adminListPlanesCatalogo(_payload, ctx) {
-  admin_requireAdmin_(ctx);
+function admin_requirePlanCatalogAccess_(ctx) {
+  if (ctx.role !== 'admin' && ctx.role !== 'super_admin' && ctx.role !== 'trainer') {
+    throw _err('FORBIDDEN', 'Solo administracion y profesionales pueden ver planes');
+  }
+}
+
+function admin_isAdminRole_(ctx) {
+  return ctx.role === 'admin' || ctx.role === 'super_admin';
+}
+
+function adminListPlanesCatalogo(payload, ctx) {
+  admin_requirePlanCatalogAccess_(ctx);
+  const isAdmin = admin_isAdminRole_(ctx);
+  const includeArchived = payload && payload.includeArchived === true;
   const planes = dbListAll('planes_catalogo', function () { return true; });
-  planes.sort(function (a, b) {
+  let visible = planes.filter(function (p) {
+    if (!includeArchived && p.estado === 'archived') return false;
+    const alcance = p.alcance || (p.owner_id ? 'personalizado' : 'global');
+    if (isAdmin) return true;
+    return alcance === 'global' || p.owner_id === ctx.userId || p.created_by === ctx.userId;
+  });
+  visible.sort(function (a, b) {
     return String(a.nombre || '').localeCompare(String(b.nombre || ''));
   });
 
-  // Enriquecer con datos del entrenador y sede
-  return planes.map(function (p) {
-    const t = p.entrenador_id ? dbFindById('usuarios', p.entrenador_id) : null;
+  return visible.map(function (p) {
+    const owner = p.owner_id ? dbFindById('usuarios', p.owner_id) : null;
     const s = p.sede_id ? dbFindById('sedes', p.sede_id) : null;
+    const g = p.gimnasio_id ? dbFindById('gimnasios', p.gimnasio_id)
+      : (s && s.gimnasio_id ? dbFindById('gimnasios', s.gimnasio_id) : null);
     return Object.assign({}, p, {
-      entrenador: t ? { id: t.id, nombres: t.nombres, apellidos: t.apellidos } : null,
+      alcance: p.alcance || (p.owner_id ? 'personalizado' : 'global'),
+      owner: owner ? { id: owner.id, nombres: owner.nombres, apellidos: owner.apellidos } : null,
+      entrenador: owner ? { id: owner.id, nombres: owner.nombres, apellidos: owner.apellidos } : null,
       sede: s ? { id: s.id, nombre: s.nombre } : null,
+      gimnasio: g ? { id: g.id, nombre: g.nombre } : null,
     });
   });
 }
 
 function adminCreatePlanCatalogo(payload, ctx) {
-  admin_requireAdmin_(ctx);
+  admin_requirePlanCatalogAccess_(ctx);
+  const isAdmin = admin_isAdminRole_(ctx);
 
   const nombre = vString(vRequired(payload.nombre, 'nombre'), 'nombre', { min: 2, max: 120 });
   const tipo = vEnum(payload.tipo, 'tipo', ['personalizado', 'semipersonalizado', 'grupal']);
@@ -795,6 +818,18 @@ function adminCreatePlanCatalogo(payload, ctx) {
   let defaultMaxSimultaneos = 1;
   if (tipo === 'semipersonalizado') defaultMaxSimultaneos = 5;
   if (tipo === 'grupal') defaultMaxSimultaneos = 15;
+  const alcance = isAdmin
+    ? vEnum(payload.alcance || 'global', 'alcance', ['global', 'personalizado'])
+    : 'personalizado';
+  const ownerId = alcance === 'personalizado' ? ctx.userId : '';
+  const gimnasioId = payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '';
+  const areaProfesional = payload.areaProfesional
+    ? vEnum(payload.areaProfesional, 'areaProfesional', ['entrenamiento', 'medica', 'otra'])
+    : 'entrenamiento';
+  const categoriaProfesional = payload.categoriaProfesional
+    ? vEnum(payload.categoriaProfesional, 'categoriaProfesional',
+        ['entrenador_personalizado', 'profesor_grupal', 'nutricionista', 'fisio', 'evaluador', 'otro'])
+    : (tipo === 'grupal' ? 'profesor_grupal' : 'entrenador_personalizado');
 
   const plan = {
     id: id,
@@ -805,16 +840,23 @@ function adminCreatePlanCatalogo(payload, ctx) {
     precio: precio,
     moneda: moneda,
     vigencia_dias: vigenciaDias,
-    entrenador_id: payload.entrenadorId
-      ? vUuid(payload.entrenadorId, 'entrenadorId')
-      : '',
+    entrenador_id: '',
     sede_id: payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '',
+    gimnasio_id: gimnasioId,
+    alcance: alcance,
+    owner_id: ownerId,
+    owner_role: alcance === 'personalizado' ? ctx.role : 'admin',
+    area_profesional: areaProfesional,
+    categoria_profesional: categoriaProfesional,
     cupos_max_simultaneos: payload.cuposMaxSimultaneos != null
       ? Math.max(1, Number(payload.cuposMaxSimultaneos))
       : defaultMaxSimultaneos,
     cupos_estricto: payload.cuposEstricto != null
       ? Boolean(payload.cuposEstricto)
       : (tipo === 'personalizado'),
+    precio_version: 1,
+    price_update_mode: 'future_only',
+    last_price_update_at: '',
     estado: 'active',
     created_at: now,
     updated_at: now,
@@ -828,10 +870,15 @@ function adminCreatePlanCatalogo(payload, ctx) {
 }
 
 function adminUpdatePlanCatalogo(payload, ctx) {
-  admin_requireAdmin_(ctx);
+  admin_requirePlanCatalogAccess_(ctx);
   const planId = vUuid(vRequired(payload.planId, 'planId'), 'planId');
   const before = dbFindById('planes_catalogo', planId);
   if (!before) throw _err('NOT_FOUND', 'Plan no encontrado');
+  const isAdmin = admin_isAdminRole_(ctx);
+  const ownerId = before.owner_id || '';
+  if (!isAdmin && ownerId !== ctx.userId && before.created_by !== ctx.userId) {
+    throw _err('FORBIDDEN', 'Solo puedes editar tus planes personalizados');
+  }
 
   const patch = {};
   if ('nombre' in payload) patch.nombre = payload.nombre;
@@ -841,15 +888,48 @@ function adminUpdatePlanCatalogo(payload, ctx) {
   if ('vigenciaDias' in payload) patch.vigencia_dias = Number(payload.vigenciaDias);
   if ('moneda' in payload) patch.moneda = payload.moneda;
   if ('estado' in payload) patch.estado = payload.estado;
+  if ('sedeId' in payload) patch.sede_id = payload.sedeId ? vUuid(payload.sedeId, 'sedeId') : '';
+  if ('gimnasioId' in payload) patch.gimnasio_id = payload.gimnasioId ? vUuid(payload.gimnasioId, 'gimnasioId') : '';
+  if ('areaProfesional' in payload) {
+    patch.area_profesional = vEnum(payload.areaProfesional || 'entrenamiento',
+      'areaProfesional', ['entrenamiento', 'medica', 'otra']);
+  }
+  if ('categoriaProfesional' in payload) {
+    patch.categoria_profesional = vEnum(payload.categoriaProfesional || 'otro',
+      'categoriaProfesional',
+      ['entrenador_personalizado', 'profesor_grupal', 'nutricionista', 'fisio', 'evaluador', 'otro']);
+  }
+  let priceUpdateMode = null;
+  if ('priceUpdateMode' in payload) {
+    priceUpdateMode = vEnum(payload.priceUpdateMode || 'future_only',
+      'priceUpdateMode', ['future_only', 'global']);
+    patch.price_update_mode = priceUpdateMode;
+  }
   if ('cuposMaxSimultaneos' in payload) {
     patch.cupos_max_simultaneos = Math.max(1, Number(payload.cuposMaxSimultaneos));
   }
   if ('cuposEstricto' in payload) {
     patch.cupos_estricto = Boolean(payload.cuposEstricto);
   }
+  if ('precio' in payload) {
+    patch.precio_version = Number(before.precio_version || 1) + 1;
+    patch.last_price_update_at = dbNowUtc();
+  }
   patch.updated_at = dbNowUtc();
 
   const updated = dbUpdateById('planes_catalogo', planId, patch);
+  if ('precio' in payload && priceUpdateMode === 'global') {
+    const activos = dbListAll('planes_usuario', function (p) {
+      return p.plan_catalogo_id === planId && p.estado === 'active';
+    });
+    for (let i = 0; i < activos.length; i++) {
+      dbUpdateById('planes_usuario', activos[i].id, {
+        precio_pagado: Number(payload.precio),
+        moneda: patch.moneda || before.moneda || 'COP',
+        updated_at: dbNowUtc(),
+      });
+    }
+  }
   auditOk(ctx.userId, 'update_plan_catalogo', 'planes_catalogo', planId,
     JSON.stringify(before), JSON.stringify(updated), ctx.reqMeta);
   return { plan: updated };

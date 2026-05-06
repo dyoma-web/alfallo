@@ -4,6 +4,7 @@ import { Modal } from '../Modal';
 import { Field } from '../Field';
 import { Btn } from '../Btn';
 import { useApiMutation, useApiQuery } from '../../lib/useApiQuery';
+import { useSession } from '../../lib/store/session';
 
 interface PlanCatalogo {
   id: string;
@@ -16,6 +17,11 @@ interface PlanCatalogo {
   vigencia_dias: number | string;
   entrenador_id?: string;
   sede_id?: string;
+  gimnasio_id?: string;
+  alcance?: string;
+  area_profesional?: string;
+  categoria_profesional?: string;
+  price_update_mode?: string;
   cupos_max_simultaneos?: number | string;
   cupos_estricto?: boolean | string;
   estado?: string;
@@ -29,8 +35,12 @@ interface PlanForm {
   precio: string;
   moneda: string;
   vigenciaDias: string;
-  entrenadorId: string;
+  alcance: 'global' | 'personalizado';
+  gimnasioId: string;
+  areaProfesional: 'entrenamiento' | 'medica' | 'otra';
+  categoriaProfesional: string;
   sedeId: string;
+  priceUpdateMode: 'future_only' | 'global';
   cuposMaxSimultaneos: string;
   cuposEstricto: boolean;
 }
@@ -49,17 +59,40 @@ interface OptionItem {
   nombre?: string;
 }
 
+const AREA_OPTIONS = [
+  { value: 'entrenamiento', label: 'Area de entrenamiento' },
+  { value: 'medica', label: 'Area medica' },
+  { value: 'otra', label: 'Otra area' },
+] as const;
+
+const CATEGORY_OPTIONS: Record<PlanForm['areaProfesional'], Array<{ value: string; label: string }>> = {
+  entrenamiento: [
+    { value: 'entrenador_personalizado', label: 'Entrenamiento personalizado' },
+    { value: 'profesor_grupal', label: 'Clases grupales' },
+    { value: 'otro', label: 'Otro entrenamiento' },
+  ],
+  medica: [
+    { value: 'nutricionista', label: 'Nutricion' },
+    { value: 'fisio', label: 'Fisioterapia' },
+    { value: 'evaluador', label: 'Evaluacion medica' },
+    { value: 'otro', label: 'Otra area medica' },
+  ],
+  otra: [{ value: 'otro', label: 'Otra categoria' }],
+};
+
 export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
   const isEdit = !!initialPlan;
+  const role = useSession((s) => s.role);
+  const isAdmin = role === 'admin' || role === 'super_admin';
   const create = useApiMutation('adminCreatePlanCatalogo');
   const update = useApiMutation('adminUpdatePlanCatalogo');
-  const { data: trainers } = useApiQuery<OptionItem[]>(
-    'adminListTrainers',
-    {},
-    { enabled: open }
-  );
   const { data: sedes } = useApiQuery<OptionItem[]>(
     'adminListSedes',
+    {},
+    { enabled: open && isAdmin }
+  );
+  const { data: gimnasios } = useApiQuery<OptionItem[]>(
+    'listGimnasiosPublic',
     {},
     { enabled: open }
   );
@@ -68,6 +101,7 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<PlanForm>({
     defaultValues: {
@@ -78,12 +112,17 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
       precio: '',
       moneda: 'COP',
       vigenciaDias: '60',
-      entrenadorId: '',
+      alcance: 'global',
+      gimnasioId: '',
+      areaProfesional: 'entrenamiento',
+      categoriaProfesional: 'entrenador_personalizado',
       sedeId: '',
+      priceUpdateMode: 'future_only',
       cuposMaxSimultaneos: '1',
       cuposEstricto: true,
     },
   });
+  const area = watch('areaProfesional');
 
   useEffect(() => {
     if (open) {
@@ -98,8 +137,12 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
         precio: initialPlan?.precio ? String(initialPlan.precio) : '',
         moneda: initialPlan?.moneda ?? 'COP',
         vigenciaDias: initialPlan?.vigencia_dias ? String(initialPlan.vigencia_dias) : '60',
-        entrenadorId: initialPlan?.entrenador_id ?? '',
+        alcance: (initialPlan?.alcance as PlanForm['alcance']) ?? (isAdmin ? 'global' : 'personalizado'),
+        gimnasioId: initialPlan?.gimnasio_id ?? '',
+        areaProfesional: (initialPlan?.area_profesional as PlanForm['areaProfesional']) ?? 'entrenamiento',
+        categoriaProfesional: initialPlan?.categoria_profesional ?? (tipoVal === 'grupal' ? 'profesor_grupal' : 'entrenador_personalizado'),
         sedeId: initialPlan?.sede_id ?? '',
+        priceUpdateMode: (initialPlan?.price_update_mode as PlanForm['priceUpdateMode']) ?? 'future_only',
         cuposMaxSimultaneos: initialPlan?.cupos_max_simultaneos
           ? String(initialPlan.cupos_max_simultaneos) : defaultCap,
         cuposEstricto: initialPlan?.cupos_estricto != null
@@ -110,7 +153,7 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
       update.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialPlan]);
+  }, [open, initialPlan, isAdmin]);
 
   async function onSubmit(values: PlanForm) {
     const payload = {
@@ -121,8 +164,12 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
       precio: Number(values.precio),
       moneda: values.moneda,
       vigenciaDias: Number(values.vigenciaDias),
-      entrenadorId: values.entrenadorId || undefined,
+      alcance: isAdmin ? values.alcance : 'personalizado',
+      gimnasioId: values.gimnasioId || undefined,
+      areaProfesional: values.areaProfesional,
+      categoriaProfesional: values.categoriaProfesional,
       sedeId: values.sedeId || undefined,
+      priceUpdateMode: values.priceUpdateMode,
       cuposMaxSimultaneos: Math.max(1, Number(values.cuposMaxSimultaneos) || 1),
       cuposEstricto: values.cuposEstricto,
     };
@@ -143,7 +190,7 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
   const submitting = create.loading || update.loading;
 
   return (
-    <Modal open onClose={onClose} title={isEdit ? 'Editar plan' : 'Crear plan en catálogo'} size="lg">
+    <Modal open onClose={onClose} title={isEdit ? 'Editar plan' : isAdmin ? 'Crear plan en catalogo' : 'Crear plan personalizado'} size="lg">
       <form onSubmit={handleSubmit(onSubmit)} className="px-5 py-5 space-y-4">
         <Field
           label="Nombre"
@@ -151,6 +198,21 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
           error={errors.nombre?.message}
           {...register('nombre', { required: 'Nombre requerido' })}
         />
+
+        <div>
+          <label htmlFor="alcance" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+            Alcance
+          </label>
+          <select
+            id="alcance"
+            {...register('alcance')}
+            disabled={!isAdmin}
+            className="w-full h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60 disabled:opacity-60"
+          >
+            <option value="global">Global del gimnasio</option>
+            <option value="personalizado">Personalizado del profesional</option>
+          </select>
+        </div>
 
         <div>
           <label htmlFor="tipo" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
@@ -165,6 +227,37 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
             <option value="semipersonalizado">Semipersonalizado</option>
             <option value="grupal">Grupal</option>
           </select>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="area" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+              Area profesional
+            </label>
+            <select
+              id="area"
+              {...register('areaProfesional')}
+              className="w-full h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60"
+            >
+              {AREA_OPTIONS.map((a) => (
+                <option key={a.value} value={a.value}>{a.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="categoria" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+              Categoria
+            </label>
+            <select
+              id="categoria"
+              {...register('categoriaProfesional')}
+              className="w-full h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60"
+            >
+              {(CATEGORY_OPTIONS[area] ?? CATEGORY_OPTIONS.entrenamiento).map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div>
@@ -258,17 +351,17 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="trainer" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
-              Entrenador titular (opcional)
+            <label htmlFor="gym" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+              Gimnasio
             </label>
             <select
-              id="trainer"
-              {...register('entrenadorId')}
+              id="gym"
+              {...register('gimnasioId')}
               className="w-full h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60"
             >
-              <option value="">Plan de la plataforma</option>
-              {trainers?.map((t) => (
-                <option key={t.id} value={t.id}>{t.nombres} {t.apellidos}</option>
+              <option value="">Sin gimnasio especifico</option>
+              {gimnasios?.map((g) => (
+                <option key={g.id} value={g.id}>{g.nombre}</option>
               ))}
             </select>
           </div>
@@ -288,6 +381,22 @@ export function PlanFormModal({ open, initialPlan, onClose, onSaved }: Props) {
             </select>
           </div>
         </div>
+
+        {isEdit && (
+          <div>
+            <label htmlFor="priceMode" className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
+              Actualizacion de precio
+            </label>
+            <select
+              id="priceMode"
+              {...register('priceUpdateMode')}
+              className="w-full h-11 px-3.5 rounded-xl bg-surface-2 border border-line-2 text-fg focus:outline-none focus:border-accent/60"
+            >
+              <option value="future_only">Solo compras posteriores</option>
+              <option value="global">Actualizar planes activos existentes</option>
+            </select>
+          </div>
+        )}
 
         {error && (
           <div role="alert" className="text-err-fg text-[13px]">

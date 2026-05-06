@@ -167,6 +167,16 @@ export function AppRouter() {
             }
           />
           <Route
+            path="/planes"
+            element={
+              <RequireAuth>
+                <RequireRole roles={['trainer', 'admin', 'super_admin']}>
+                  <AdminPlanes />
+                </RequireRole>
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/no-disponibilidad"
             element={
               <RequireAuth>
@@ -188,16 +198,6 @@ export function AppRouter() {
               <RequireAuth>
                 <RequireRole roles={['admin', 'super_admin']}>
                   <AdminSedes />
-                </RequireRole>
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/planes"
-            element={
-              <RequireAuth>
-                <RequireRole roles={['admin', 'super_admin']}>
-                  <AdminPlanes />
                 </RequireRole>
               </RequireAuth>
             }

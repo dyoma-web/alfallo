@@ -94,6 +94,9 @@ const SCHEMA = {
     'id', 'nombre', 'descripcion', 'tipo', 'num_sesiones',
     'precio', 'moneda', 'vigencia_dias', 'entrenador_id', 'sede_id',
     'cupos_max_simultaneos', 'cupos_estricto',
+    'alcance', 'owner_id', 'owner_role', 'gimnasio_id',
+    'area_profesional', 'categoria_profesional', 'precio_version',
+    'price_update_mode', 'last_price_update_at',
     'estado', 'created_at', 'updated_at', 'created_by'
   ],
 

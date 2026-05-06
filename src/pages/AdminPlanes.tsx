@@ -12,6 +12,7 @@ import { DetailModal, type DetailSection } from '../components/DetailModal';
 import { useConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 import { config } from '../lib/config';
+import { useSession } from '../lib/store/session';
 
 interface PlanCatalogo {
   id: string;
@@ -24,6 +25,12 @@ interface PlanCatalogo {
   vigencia_dias: number | string;
   cupos_max_simultaneos?: number | string;
   cupos_estricto?: boolean | string;
+  alcance?: string;
+  owner?: { id: string; nombres: string; apellidos: string } | null;
+  gimnasio?: { id: string; nombre: string } | null;
+  area_profesional?: string;
+  categoria_profesional?: string;
+  precio_version?: number | string;
   estado?: string;
   entrenador?: { id: string; nombres: string; apellidos: string } | null;
   sede?: { id: string; nombre: string } | null;
@@ -35,7 +42,24 @@ const TIPO_LABEL: Record<string, string> = {
   grupal: 'Grupal',
 };
 
+const AREA_LABEL: Record<string, string> = {
+  entrenamiento: 'Area de entrenamiento',
+  medica: 'Area medica',
+  otra: 'Otra area',
+};
+
+const CATEGORY_LABEL: Record<string, string> = {
+  entrenador_personalizado: 'Entrenamiento personalizado',
+  profesor_grupal: 'Clases grupales',
+  nutricionista: 'Nutricion',
+  fisio: 'Fisioterapia',
+  evaluador: 'Evaluacion medica',
+  otro: 'Otra categoria',
+};
+
 export default function AdminPlanes() {
+  const role = useSession((s) => s.role);
+  const isAdmin = role === 'admin' || role === 'super_admin';
   const [searchParams, setSearchParams] = useSearchParams();
   const [showCreate, setShowCreate] = useState(false);
   const [editingPlan, setEditingPlan] = useState<PlanCatalogo | null>(null);
@@ -89,13 +113,17 @@ export default function AdminPlanes() {
               Planes
             </h1>
             <p className="text-fg-3 text-[12px] mt-0.5">
-              Catálogo de plantillas. Asigna desde aquí o desde el detalle del usuario.
+              {isAdmin
+                ? 'Catalogo global por gimnasio y planes personalizados de profesionales.'
+                : 'Catalogo global disponible y tus planes personalizados.'}
             </p>
           </div>
           <div className="flex gap-2">
-            <Btn variant="secondary" onClick={() => setAssigningPlanId('')}>
-              Asignar a usuario
-            </Btn>
+            {isAdmin && (
+              <Btn variant="secondary" onClick={() => setAssigningPlanId('')}>
+                Asignar a usuario
+              </Btn>
+            )}
             <Btn icon="plus" onClick={() => setShowCreate(true)}>
               Nuevo plan
             </Btn>
@@ -135,6 +163,7 @@ export default function AdminPlanes() {
                 onAssign={() => setAssigningPlanId(p.id)}
                 onArchive={() => handleArchive(p.id)}
                 busy={update.loading}
+                canAssign={isAdmin}
               />
             ))}
           </ul>
@@ -166,14 +195,17 @@ export default function AdminPlanes() {
           if (viewingPlan) setAssigningPlanId(viewingPlan.id);
           setViewingPlan(null);
         }}
+        canAssign={isAdmin}
       />
 
-      <AssignPlanModal
-        open={assigningPlanId !== null}
-        preselectedPlanId={assigningPlanId ?? undefined}
-        onClose={() => setAssigningPlanId(null)}
-        onAssigned={() => setAssigningPlanId(null)}
-      />
+      {isAdmin && (
+        <AssignPlanModal
+          open={assigningPlanId !== null}
+          preselectedPlanId={assigningPlanId ?? undefined}
+          onClose={() => setAssigningPlanId(null)}
+          onAssigned={() => setAssigningPlanId(null)}
+        />
+      )}
 
       {confirmDialog}
     </AppShell>
@@ -185,11 +217,13 @@ function PlanDetailModal({
   onClose,
   onEdit,
   onAssign,
+  canAssign,
 }: {
   plan: PlanCatalogo | null;
   onClose: () => void;
   onEdit: () => void;
   onAssign: () => void;
+  canAssign: boolean;
 }) {
   if (!plan) return null;
   const isArchived = plan.estado === 'archived';
@@ -205,6 +239,16 @@ function PlanDetailModal({
         { label: 'Sesiones', value: String(plan.num_sesiones) },
         { label: 'Vigencia', value: `${plan.vigencia_dias} días` },
         { label: 'Precio', value: formatMoney(Number(plan.precio), plan.moneda || 'COP') },
+        { label: 'Alcance', value: plan.alcance === 'personalizado' ? 'Personalizado' : 'Global' },
+        { label: 'Version precio', value: String(plan.precio_version || 1) },
+      ],
+    },
+    {
+      title: 'Categoria operativa',
+      fields: [
+        { label: 'Area', value: AREA_LABEL[plan.area_profesional || ''] ?? 'Sin area' },
+        { label: 'Categoria', value: CATEGORY_LABEL[plan.categoria_profesional || ''] ?? 'Sin categoria' },
+        { label: 'Gimnasio', value: plan.gimnasio ? plan.gimnasio.nombre : 'Sin gimnasio' },
       ],
     },
     {
@@ -261,7 +305,7 @@ function PlanDetailModal({
       actions={
         <>
           <Btn variant="secondary" full onClick={onClose}>Cerrar</Btn>
-          {!isArchived && (
+          {!isArchived && canAssign && (
             <Btn variant="outline" onClick={onAssign}>Asignar a usuario</Btn>
           )}
           <Btn onClick={onEdit}>Editar</Btn>
@@ -278,6 +322,7 @@ function PlanRow({
   onAssign,
   onArchive,
   busy,
+  canAssign,
 }: {
   plan: PlanCatalogo;
   onView: () => void;
@@ -285,6 +330,7 @@ function PlanRow({
   onAssign: () => void;
   onArchive: () => void;
   busy: boolean;
+  canAssign: boolean;
 }) {
   const isArchived = plan.estado === 'archived';
   return (
@@ -346,9 +392,11 @@ function PlanRow({
           </Btn>
           {!isArchived && (
             <>
-              <Btn variant="outline" size="sm" onClick={onAssign} disabled={busy}>
-                Asignar a usuario
-              </Btn>
+              {canAssign && (
+                <Btn variant="outline" size="sm" onClick={onAssign} disabled={busy}>
+                  Asignar a usuario
+                </Btn>
+              )}
               <Btn variant="ghost" size="sm" onClick={onArchive} disabled={busy}>
                 Archivar
               </Btn>

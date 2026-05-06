@@ -14,7 +14,7 @@ const NAV_CLIENT: NavItem[] = [
   { to: '/dashboard', icon: 'home', label: 'Inicio' },
   { to: '/agendar', icon: 'plus', label: 'Agendar' },
   { to: '/calendario', icon: 'cal', label: 'Calendario' },
-  { to: '/alertas', icon: 'bell', label: 'Alertas' },
+  { to: '/planes', icon: 'shield', label: 'Planes' },
   { to: '/perfil', icon: 'user', label: 'Perfil' },
 ];
 
@@ -22,8 +22,8 @@ const NAV_TRAINER: NavItem[] = [
   { to: '/dashboard', icon: 'home', label: 'Hoy' },
   { to: '/calendario', icon: 'cal', label: 'Calendario' },
   { to: '/usuarios', icon: 'group', label: 'Usuarios' },
+  { to: '/planes', icon: 'shield', label: 'Planes' },
   { to: '/alertas', icon: 'bell', label: 'Alertas' },
-  { to: '/perfil', icon: 'user', label: 'Perfil' },
 ];
 
 const NAV_ADMIN: NavItem[] = [
