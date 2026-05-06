@@ -59,7 +59,16 @@ interface SlotCapacity {
   lleno: boolean;
   tipo: string;
   trainerFueraHorario?: boolean;
+  trainerNoDisponible?: boolean;
   sedeBloqueada?: boolean;
+}
+
+interface SlotState extends SlotCapacity {
+  fechaInicioUtc: string;
+}
+
+interface SlotStatesResp {
+  slots: SlotState[];
 }
 
 // Slots cada 30 min entre 06:00 y 21:00
@@ -183,6 +192,8 @@ export default function Booking() {
 
   // Cargar capacidad cuando hay slot seleccionado completo
   const [slotCap, setSlotCap] = useState<SlotCapacity | null>(null);
+  const [slotStates, setSlotStates] = useState<Record<string, SlotState>>({});
+  const [slotStatesLoading, setSlotStatesLoading] = useState(false);
   useEffect(() => {
     let cancelled = false;
     if (!selectedTrainerId || !selectedDate || !selectedHora) {
@@ -205,6 +216,39 @@ export default function Booking() {
       .catch(() => { if (!cancelled) setSlotCap(null); });
     return () => { cancelled = true; };
   }, [selectedTrainerId, selectedDate, selectedHora, selectedDuracion, selectedSedeId, token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedTrainerId || !selectedDate) {
+      setSlotStates({});
+      return;
+    }
+    setSlotStatesLoading(true);
+    api<SlotStatesResp>(
+      'getSlotStates',
+      {
+        trainerId: selectedTrainerId,
+        slots: SLOT_HOURS.map((slot) => new Date(`${selectedDate}T${slot}:00`).toISOString()),
+        tipo: 'personalizado',
+        duracionMin: selectedDuracion || 60,
+        sedeId: selectedSedeId || undefined,
+      },
+      { token, retry: false }
+    )
+      .then((res) => {
+        if (cancelled) return;
+        const next: Record<string, SlotState> = {};
+        for (const state of res.slots) {
+          const d = new Date(state.fechaInicioUtc);
+          const key = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+          next[key] = state;
+        }
+        setSlotStates(next);
+      })
+      .catch(() => { if (!cancelled) setSlotStates({}); })
+      .finally(() => { if (!cancelled) setSlotStatesLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedTrainerId, selectedDate, selectedDuracion, selectedSedeId, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -303,6 +347,13 @@ export default function Booking() {
 
   const noTrainers = !!options && options.trainers.length === 0;
   const noPlan = !!options && !options.planActivo;
+  const selectedSlotState = selectedHora ? slotStates[selectedHora] : null;
+  const selectedSlotInvalid = !!selectedSlotState && (
+    !!selectedSlotState.sedeBloqueada ||
+    !!selectedSlotState.trainerFueraHorario ||
+    !!selectedSlotState.trainerNoDisponible ||
+    (!!selectedSlotState.lleno && !!selectedSlotState.estricto)
+  );
 
   return (
     <AppShell>
@@ -404,24 +455,42 @@ export default function Booking() {
                 <div className="mt-4">
                   <label className="block text-[11px] font-mono uppercase tracking-[0.14em] text-fg-3 mb-2">
                     Hora disponible
-                    {busyLoading && <span className="ml-2 text-fg-3">cargando...</span>}
+                    {(busyLoading || slotStatesLoading) && <span className="ml-2 text-fg-3">cargando...</span>}
                   </label>
                   <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
                     {SLOT_HOURS.map((slot) => {
                       const busy = busyHours.has(slot);
+                      const state = slotStates[slot];
+                      const blocked = !!state?.sedeBloqueada;
+                      const outside = !!state?.trainerFueraHorario;
+                      const unavailable = !!state?.trainerNoDisponible;
+                      const strictFull = !!state?.lleno && !!state?.estricto;
+                      const disabled = busy || blocked || outside || unavailable || strictFull;
                       const selected = selectedHora === slot;
+                      const title = blocked
+                        ? 'Sede bloqueada'
+                        : outside
+                          ? 'Fuera de franja profesional'
+                          : unavailable
+                            ? 'Profesional no disponible'
+                            : strictFull
+                              ? 'Cupo lleno'
+                              : busy
+                                ? 'Horario ocupado'
+                                : undefined;
                       return (
                         <button
                           key={slot}
                           type="button"
-                          onClick={() => !busy && setValue('hora', slot, { shouldValidate: true })}
-                          disabled={busy}
+                          onClick={() => !disabled && setValue('hora', slot, { shouldValidate: true })}
+                          disabled={disabled}
                           aria-pressed={selected}
+                          title={title}
                           className={[
                             'py-2 rounded-lg text-sm font-medium border transition-colors',
-                            busy && 'bg-surface-2 border-line text-fg-3 line-through cursor-not-allowed',
-                            !busy && selected && 'bg-accent border-accent text-accent-ink',
-                            !busy && !selected && 'bg-surface-2 border-line-2 text-fg hover:border-accent/40 cursor-pointer',
+                            disabled && 'bg-surface-2 border-line text-fg-3 line-through cursor-not-allowed',
+                            !disabled && selected && 'bg-accent border-accent text-accent-ink',
+                            !disabled && !selected && 'bg-surface-2 border-line-2 text-fg hover:border-accent/40 cursor-pointer',
                           ].filter(Boolean).join(' ')}
                         >
                           {slot}
@@ -500,6 +569,11 @@ export default function Booking() {
                 Ese horario está fuera de la franja de atención del profesional. Elige otra hora disponible.
               </WarningCard>
             )}
+            {slotCap && slotCap.trainerNoDisponible && (
+              <WarningCard>
+                El profesional marcó esa franja como no disponible. Elige otra hora.
+              </WarningCard>
+            )}
             {slotCap && !slotCap.lleno && slotCap.cap > 1 && (
               <p className="text-[12px] text-fg-3">
                 Cupo de "{slotCap.tipo}" en esa franja: {slotCap.tomados}/{slotCap.cap} tomados ·{' '}
@@ -528,7 +602,7 @@ export default function Booking() {
                 type="submit"
                 size="lg"
                 full
-                disabled={submit.loading || !bookingId || noTrainers || !!slotCap?.sedeBloqueada || !!slotCap?.trainerFueraHorario}
+                disabled={submit.loading || !bookingId || noTrainers || selectedSlotInvalid || !!slotCap?.sedeBloqueada || !!slotCap?.trainerFueraHorario || !!slotCap?.trainerNoDisponible}
               >
                 {submit.loading ? 'Agendando...' : 'Agendar'}
               </Btn>

@@ -7,7 +7,7 @@
  * ║  en apps-script/ y ejecuta: npm run gs:bundle                    ║
  * ║                                                                  ║
  * ║  Repo:    https://github.com/dyoma-web/alfallo                   ║
- * ║  Built:   2026-05-06T00:49:33.948Z                              ║
+ * ║  Built:   2026-05-06T00:56:11.050Z                              ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -2888,6 +2888,7 @@ function bookingsGetSlotCapacity(payload, _ctx) {
   const stricts = bookings_getCapStrict_(planCatalogo, tipo);
   const trainerProfile = dbFindById('entrenadores_perfil', trainerId);
   const workWindow = bookings_checkWorkingWindow_(trainerProfile, fechaInicio, duracionMin);
+  const unavailRule = availability_checkConflict_(trainerId, fechaInicio, duracionMin);
 
   const sameSlot = dbListAll('agendamientos', function (b) {
     if (b.entrenador_id !== trainerId) return false;
@@ -2907,7 +2908,25 @@ function bookingsGetSlotCapacity(payload, _ctx) {
     lleno: lleno,
     tipo: tipo,
     trainerFueraHorario: !workWindow.allowed,
+    trainerNoDisponible: !!unavailRule,
     sedeBloqueada: sedeId ? !!sedeBlocks_checkConflict_(sedeId, fechaInicio, duracionMin) : false,
+  };
+}
+
+function bookingsGetSlotStates(payload, ctx) {
+  const slots = Array.isArray(payload.slots) ? payload.slots : [];
+  if (slots.length > 48) {
+    throw _err('TOO_MANY_SLOTS', 'Demasiados horarios para consultar');
+  }
+  return {
+    slots: slots.map(function (fechaInicioUtc) {
+      const state = bookingsGetSlotCapacity(Object.assign({}, payload, {
+        fechaInicioUtc: fechaInicioUtc,
+      }), ctx);
+      return Object.assign({}, state, {
+        fechaInicioUtc: fechaInicioUtc,
+      });
+    }),
   };
 }
 
@@ -6402,6 +6421,9 @@ function _handleAction(action, rawPayload, token, reqMeta) {
 
     case 'getSlotCapacity':
       return bookingsGetSlotCapacity(payload, ctx);
+
+    case 'getSlotStates':
+      return bookingsGetSlotStates(payload, ctx);
 
     // ── Alertas (Iter 5) ─────────────────────────────────────────────────
     case 'listAlerts':
